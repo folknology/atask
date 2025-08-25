@@ -51,6 +51,15 @@ ATask is a Rust-based task management system that integrates with Git to automat
 5. **Security**: Regular security audits and vulnerability assessments
 6. **Documentation**: Maintain clear, professional documentation
 
+### Issue Update Guidelines
+- **Concise Updates**: Keep issue comments brief and focused
+- **Avoid Repetition**: Don't repeat information already in the issue description
+- **Focus on NEW**: Only mention what's newly completed or changed
+- **Link Commits**: Include relevant commit links for traceability
+- **Next Steps**: Briefly state what's ready for next phase
+- **Stats Summary**: Include key metrics (tests, lines, files) concisely
+- **No Architecture Details**: Avoid repeating technical details already documented
+
 ## Reference Documentation
 
 The following files in `~/.agents/` should be checked regularly for guidance:
