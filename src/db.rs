@@ -314,12 +314,20 @@ impl TaskDatabase {
 
         if let Some(row) = rows.next().await? {
             let created_at: String = row.get(4)?;
+            let parsed_date = if created_at.contains('T') {
+                DateTime::parse_from_rfc3339(&created_at)?.with_timezone(&Utc)
+            } else {
+                // Handle SQLite datetime format
+                DateTime::parse_from_str(&format!("{} +0000", created_at), "%Y-%m-%d %H:%M:%S %z")?
+                    .with_timezone(&Utc)
+            };
+            
             Ok(Some(Label {
                 id: Some(row.get(0)?),
                 name: row.get(1)?,
                 color: row.get(2)?,
                 description: row.get(3)?,
-                created_at: DateTime::parse_from_rfc3339(&created_at)?.with_timezone(&Utc),
+                created_at: parsed_date,
             }))
         } else {
             Ok(None)
@@ -335,12 +343,20 @@ impl TaskDatabase {
         let mut labels = Vec::new();
         while let Some(row) = rows.next().await? {
             let created_at: String = row.get(4)?;
+            let parsed_date = if created_at.contains('T') {
+                DateTime::parse_from_rfc3339(&created_at)?.with_timezone(&Utc)
+            } else {
+                // Handle SQLite datetime format
+                DateTime::parse_from_str(&format!("{} +0000", created_at), "%Y-%m-%d %H:%M:%S %z")?
+                    .with_timezone(&Utc)
+            };
+            
             labels.push(Label {
                 id: Some(row.get(0)?),
                 name: row.get(1)?,
                 color: row.get(2)?,
                 description: row.get(3)?,
-                created_at: DateTime::parse_from_rfc3339(&created_at)?.with_timezone(&Utc),
+                created_at: parsed_date,
             });
         }
 
@@ -428,6 +444,20 @@ impl TaskDatabase {
             let created_at: String = row.get(6)?;
             let updated_at: String = row.get(7)?;
             
+            let parsed_created_at = if created_at.contains('T') {
+                DateTime::parse_from_rfc3339(&created_at)?.with_timezone(&Utc)
+            } else {
+                DateTime::parse_from_str(&format!("{} +0000", created_at), "%Y-%m-%d %H:%M:%S %z")?
+                    .with_timezone(&Utc)
+            };
+            
+            let parsed_updated_at = if updated_at.contains('T') {
+                DateTime::parse_from_rfc3339(&updated_at)?.with_timezone(&Utc)
+            } else {
+                DateTime::parse_from_str(&format!("{} +0000", updated_at), "%Y-%m-%d %H:%M:%S %z")?
+                    .with_timezone(&Utc)
+            };
+            
             // Get labels for this issue
             let labels = self.get_issue_labels(issue_id).await?;
             
@@ -438,8 +468,8 @@ impl TaskDatabase {
                 status: row.get::<String>(3)?.parse()?,
                 priority: row.get::<String>(4)?.parse()?,
                 assignee: row.get(5)?,
-                created_at: DateTime::parse_from_rfc3339(&created_at)?.with_timezone(&Utc),
-                updated_at: DateTime::parse_from_rfc3339(&updated_at)?.with_timezone(&Utc),
+                created_at: parsed_created_at,
+                updated_at: parsed_updated_at,
                 labels,
             });
         }
