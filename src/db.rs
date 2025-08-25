@@ -106,6 +106,7 @@ impl std::str::FromStr for IssuePriority {
 }
 
 pub struct TaskDatabase {
+    #[allow(dead_code)]
     db: Database,
     conn: Connection,
 }
@@ -412,6 +413,22 @@ impl TaskDatabase {
             let created_at: String = row.get(6)?;
             let updated_at: String = row.get(7)?;
             
+            let parsed_created_at = if created_at.contains('T') {
+                DateTime::parse_from_rfc3339(&created_at)?.with_timezone(&Utc)
+            } else {
+                // Handle SQLite datetime format
+                DateTime::parse_from_str(&format!("{} +0000", created_at), "%Y-%m-%d %H:%M:%S %z")?
+                    .with_timezone(&Utc)
+            };
+            
+            let parsed_updated_at = if updated_at.contains('T') {
+                DateTime::parse_from_rfc3339(&updated_at)?.with_timezone(&Utc)
+            } else {
+                // Handle SQLite datetime format
+                DateTime::parse_from_str(&format!("{} +0000", updated_at), "%Y-%m-%d %H:%M:%S %z")?
+                    .with_timezone(&Utc)
+            };
+            
             // Get labels for this issue
             let labels = self.get_issue_labels(id).await?;
             
@@ -422,8 +439,8 @@ impl TaskDatabase {
                 status: row.get::<String>(3)?.parse()?,
                 priority: row.get::<String>(4)?.parse()?,
                 assignee: row.get(5)?,
-                created_at: DateTime::parse_from_rfc3339(&created_at)?.with_timezone(&Utc),
-                updated_at: DateTime::parse_from_rfc3339(&updated_at)?.with_timezone(&Utc),
+                created_at: parsed_created_at,
+                updated_at: parsed_updated_at,
                 labels,
             }))
         } else {
@@ -647,3 +664,411 @@ impl TaskDatabase {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio;
+
+    // Helper function to create a test database
+    async fn create_test_db() -> Result<TaskDatabase> {
+        TaskDatabase::in_memory().await
+    }
+
+    // Helper function to create a sample commit
+    fn create_sample_commit() -> GitCommit {
+        GitCommit {
+            id: None,
+            hash: "abc123def456".to_string(),
+            author_name: "Test Author".to_string(),
+            author_email: "test@example.com".to_string(),
+            commit_date: Utc::now(),
+            message: "Test commit message".to_string(),
+            files_changed: vec!["src/main.rs".to_string(), "README.md".to_string()],
+            insertions: 10,
+            deletions: 5,
+        }
+    }
+
+    // Helper function to create a sample label
+    fn create_sample_label() -> Label {
+        Label {
+            id: None,
+            name: "test-label".to_string(),
+            color: "#ff0000".to_string(),
+            description: Some("A test label".to_string()),
+            created_at: Utc::now(),
+        }
+    }
+
+    // Helper function to create a sample issue
+    fn create_sample_issue() -> Issue {
+        Issue {
+            id: None,
+            title: "Test Issue".to_string(),
+            description: Some("This is a test issue".to_string()),
+            status: IssueStatus::Open,
+            priority: IssuePriority::Medium,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            assignee: Some("test-user".to_string()),
+            labels: vec!["test-label".to_string()],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_database_initialization() {
+        let db = create_test_db().await;
+        assert!(db.is_ok(), "Database should initialize successfully");
+    }
+
+    #[tokio::test]
+    async fn test_insert_and_retrieve_commit() {
+        let db = create_test_db().await.unwrap();
+        let commit = create_sample_commit();
+        
+        // Insert commit
+        let commit_id = db.insert_commit(&commit).await.unwrap();
+        assert!(commit_id > 0, "Commit ID should be positive");
+        
+        // Retrieve by hash
+        let retrieved = db.get_commit_by_hash(&commit.hash).await.unwrap();
+        assert!(retrieved.is_some(), "Commit should be retrievable by hash");
+        
+        let retrieved_commit = retrieved.unwrap();
+        assert_eq!(retrieved_commit.hash, commit.hash);
+        assert_eq!(retrieved_commit.author_name, commit.author_name);
+        assert_eq!(retrieved_commit.author_email, commit.author_email);
+        assert_eq!(retrieved_commit.message, commit.message);
+        assert_eq!(retrieved_commit.files_changed, commit.files_changed);
+        assert_eq!(retrieved_commit.insertions, commit.insertions);
+        assert_eq!(retrieved_commit.deletions, commit.deletions);
+    }
+
+    #[tokio::test]
+    async fn test_get_all_commits() {
+        let db = create_test_db().await.unwrap();
+        
+        // Insert multiple commits
+        let mut commit1 = create_sample_commit();
+        commit1.hash = "hash1".to_string();
+        let mut commit2 = create_sample_commit();
+        commit2.hash = "hash2".to_string();
+        
+        db.insert_commit(&commit1).await.unwrap();
+        db.insert_commit(&commit2).await.unwrap();
+        
+        // Retrieve all commits
+        let commits = db.get_all_commits().await.unwrap();
+        assert_eq!(commits.len(), 2, "Should retrieve all inserted commits");
+    }
+
+    #[tokio::test]
+    async fn test_commit_hash_uniqueness() {
+        let db = create_test_db().await.unwrap();
+        let commit = create_sample_commit();
+        
+        // Insert same commit twice
+        let result1 = db.insert_commit(&commit).await;
+        let result2 = db.insert_commit(&commit).await;
+        
+        assert!(result1.is_ok(), "First insert should succeed");
+        assert!(result2.is_err(), "Second insert with same hash should fail");
+    }
+
+    #[tokio::test]
+    async fn test_insert_and_retrieve_label() {
+        let db = create_test_db().await.unwrap();
+        let label = create_sample_label();
+        
+        // Insert label
+        let label_id = db.insert_label(&label).await.unwrap();
+        assert!(label_id > 0, "Label ID should be positive");
+        
+        // Retrieve by name
+        let retrieved = db.get_label_by_name(&label.name).await.unwrap();
+        assert!(retrieved.is_some(), "Label should be retrievable by name");
+        
+        let retrieved_label = retrieved.unwrap();
+        assert_eq!(retrieved_label.name, label.name);
+        assert_eq!(retrieved_label.color, label.color);
+        assert_eq!(retrieved_label.description, label.description);
+    }
+
+    #[tokio::test]
+    async fn test_get_all_labels() {
+        let db = create_test_db().await.unwrap();
+        
+        // Insert multiple labels
+        let mut label1 = create_sample_label();
+        label1.name = "label1".to_string();
+        let mut label2 = create_sample_label();
+        label2.name = "label2".to_string();
+        
+        db.insert_label(&label1).await.unwrap();
+        db.insert_label(&label2).await.unwrap();
+        
+        // Retrieve all labels
+        let labels = db.get_all_labels().await.unwrap();
+        assert_eq!(labels.len(), 2, "Should retrieve all inserted labels");
+    }
+
+    #[tokio::test]
+    async fn test_label_name_uniqueness() {
+        let db = create_test_db().await.unwrap();
+        let label = create_sample_label();
+        
+        // Insert same label twice
+        let result1 = db.insert_label(&label).await;
+        let result2 = db.insert_label(&label).await;
+        
+        assert!(result1.is_ok(), "First insert should succeed");
+        assert!(result2.is_err(), "Second insert with same name should fail");
+    }
+
+    #[tokio::test]
+    async fn test_create_default_labels() {
+        let db = create_test_db().await.unwrap();
+        
+        // Create default labels
+        db.create_default_labels().await.unwrap();
+        
+        // Verify default labels exist
+        let bug_label = db.get_label_by_name("bug").await.unwrap();
+        assert!(bug_label.is_some(), "Bug label should exist");
+        assert_eq!(bug_label.unwrap().color, "#d73a4a");
+        
+        let enhancement_label = db.get_label_by_name("enhancement").await.unwrap();
+        assert!(enhancement_label.is_some(), "Enhancement label should exist");
+        assert_eq!(enhancement_label.unwrap().color, "#a2eeef");
+        
+        // Verify all 8 default labels
+        let all_labels = db.get_all_labels().await.unwrap();
+        assert_eq!(all_labels.len(), 8, "Should have 8 default labels");
+    }
+
+    #[tokio::test]
+    async fn test_insert_and_retrieve_issue() {
+        let db = create_test_db().await.unwrap();
+        
+        // Create label first
+        let label = create_sample_label();
+        db.insert_label(&label).await.unwrap();
+        
+        // Insert issue
+        let issue = create_sample_issue();
+        let issue_id = db.insert_issue(&issue).await.unwrap();
+        assert!(issue_id > 0, "Issue ID should be positive");
+        
+        // Retrieve issue
+        let retrieved = db.get_issue_by_id(issue_id).await.unwrap();
+        assert!(retrieved.is_some(), "Issue should be retrievable by ID");
+        
+        let retrieved_issue = retrieved.unwrap();
+        assert_eq!(retrieved_issue.title, issue.title);
+        assert_eq!(retrieved_issue.description, issue.description);
+        assert_eq!(retrieved_issue.status.to_string(), issue.status.to_string());
+        assert_eq!(retrieved_issue.priority.to_string(), issue.priority.to_string());
+        assert_eq!(retrieved_issue.assignee, issue.assignee);
+        assert_eq!(retrieved_issue.labels, issue.labels);
+    }
+
+    #[tokio::test]
+    async fn test_get_all_issues() {
+        let db = create_test_db().await.unwrap();
+        
+        // Create label first
+        let label = create_sample_label();
+        db.insert_label(&label).await.unwrap();
+        
+        // Insert multiple issues
+        let mut issue1 = create_sample_issue();
+        issue1.title = "Issue 1".to_string();
+        let mut issue2 = create_sample_issue();
+        issue2.title = "Issue 2".to_string();
+        
+        db.insert_issue(&issue1).await.unwrap();
+        db.insert_issue(&issue2).await.unwrap();
+        
+        // Retrieve all issues
+        let issues = db.get_all_issues().await.unwrap();
+        assert_eq!(issues.len(), 2, "Should retrieve all inserted issues");
+    }
+
+    #[tokio::test]
+    async fn test_issue_label_association() {
+        let db = create_test_db().await.unwrap();
+        
+        // Create multiple labels
+        let mut label1 = create_sample_label();
+        label1.name = "bug".to_string();
+        let mut label2 = create_sample_label();
+        label2.name = "enhancement".to_string();
+        
+        db.insert_label(&label1).await.unwrap();
+        db.insert_label(&label2).await.unwrap();
+        
+        // Create issue with multiple labels
+        let mut issue = create_sample_issue();
+        issue.labels = vec!["bug".to_string(), "enhancement".to_string()];
+        
+        let issue_id = db.insert_issue(&issue).await.unwrap();
+        
+        // Retrieve and verify labels
+        let retrieved_issue = db.get_issue_by_id(issue_id).await.unwrap().unwrap();
+        assert_eq!(retrieved_issue.labels.len(), 2, "Issue should have 2 labels");
+        assert!(retrieved_issue.labels.contains(&"bug".to_string()));
+        assert!(retrieved_issue.labels.contains(&"enhancement".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_update_issue_status() {
+        let db = create_test_db().await.unwrap();
+        
+        // Create label first
+        let label = create_sample_label();
+        db.insert_label(&label).await.unwrap();
+        
+        // Insert issue
+        let issue = create_sample_issue();
+        let issue_id = db.insert_issue(&issue).await.unwrap();
+        
+        // Update status
+        db.update_issue_status(issue_id, IssueStatus::InProgress).await.unwrap();
+        
+        // Verify update
+        let updated_issue = db.get_issue_by_id(issue_id).await.unwrap().unwrap();
+        assert_eq!(updated_issue.status.to_string(), "in_progress");
+    }
+
+    #[tokio::test]
+    async fn test_delete_issue() {
+        let db = create_test_db().await.unwrap();
+        
+        // Create label first
+        let label = create_sample_label();
+        db.insert_label(&label).await.unwrap();
+        
+        // Insert issue
+        let issue = create_sample_issue();
+        let issue_id = db.insert_issue(&issue).await.unwrap();
+        
+        // Verify issue exists
+        let retrieved = db.get_issue_by_id(issue_id).await.unwrap();
+        assert!(retrieved.is_some(), "Issue should exist before deletion");
+        
+        // Delete issue
+        db.delete_issue(issue_id).await.unwrap();
+        
+        // Verify issue is deleted
+        let deleted = db.get_issue_by_id(issue_id).await.unwrap();
+        assert!(deleted.is_none(), "Issue should not exist after deletion");
+    }
+
+    #[tokio::test]
+    async fn test_issue_status_string_conversion() {
+        assert_eq!(IssueStatus::Open.to_string(), "open");
+        assert_eq!(IssueStatus::InProgress.to_string(), "in_progress");
+        assert_eq!(IssueStatus::Resolved.to_string(), "resolved");
+        assert_eq!(IssueStatus::Closed.to_string(), "closed");
+        
+        assert!("open".parse::<IssueStatus>().is_ok());
+        assert!("in_progress".parse::<IssueStatus>().is_ok());
+        assert!("resolved".parse::<IssueStatus>().is_ok());
+        assert!("closed".parse::<IssueStatus>().is_ok());
+        assert!("invalid".parse::<IssueStatus>().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_issue_priority_string_conversion() {
+        assert_eq!(IssuePriority::Low.to_string(), "low");
+        assert_eq!(IssuePriority::Medium.to_string(), "medium");
+        assert_eq!(IssuePriority::High.to_string(), "high");
+        assert_eq!(IssuePriority::Critical.to_string(), "critical");
+        
+        assert!("low".parse::<IssuePriority>().is_ok());
+        assert!("medium".parse::<IssuePriority>().is_ok());
+        assert!("high".parse::<IssuePriority>().is_ok());
+        assert!("critical".parse::<IssuePriority>().is_ok());
+        assert!("invalid".parse::<IssuePriority>().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_git_commit_json_serialization() {
+        let commit = create_sample_commit();
+        let files_json = serde_json::to_string(&commit.files_changed).unwrap();
+        let deserialized: Vec<String> = serde_json::from_str(&files_json).unwrap();
+        assert_eq!(commit.files_changed, deserialized);
+    }
+
+    #[tokio::test]
+    async fn test_database_schema_initialization() {
+        let db = create_test_db().await.unwrap();
+        
+        // Test that we can perform operations on all tables
+        // This implicitly tests that all tables were created correctly
+        
+        // Test commits table
+        let commits = db.get_all_commits().await.unwrap();
+        assert_eq!(commits.len(), 0);
+        
+        // Test labels table
+        let labels = db.get_all_labels().await.unwrap();
+        assert_eq!(labels.len(), 0);
+        
+        // Test issues table
+        let issues = db.get_all_issues().await.unwrap();
+        assert_eq!(issues.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_nonexistent_commit_retrieval() {
+        let db = create_test_db().await.unwrap();
+        let result = db.get_commit_by_hash("nonexistent").await.unwrap();
+        assert!(result.is_none(), "Should return None for nonexistent commit");
+    }
+
+    #[tokio::test]
+    async fn test_nonexistent_label_retrieval() {
+        let db = create_test_db().await.unwrap();
+        let result = db.get_label_by_name("nonexistent").await.unwrap();
+        assert!(result.is_none(), "Should return None for nonexistent label");
+    }
+
+    #[tokio::test]
+    async fn test_nonexistent_issue_retrieval() {
+        let db = create_test_db().await.unwrap();
+        let result = db.get_issue_by_id(999).await.unwrap();
+        assert!(result.is_none(), "Should return None for nonexistent issue");
+    }
+
+    #[tokio::test]
+    async fn test_issue_without_labels() {
+        let db = create_test_db().await.unwrap();
+        
+        // Create issue without labels
+        let mut issue = create_sample_issue();
+        issue.labels = vec![];
+        
+        let issue_id = db.insert_issue(&issue).await.unwrap();
+        let retrieved = db.get_issue_by_id(issue_id).await.unwrap().unwrap();
+        
+        assert_eq!(retrieved.labels.len(), 0, "Issue should have no labels");
+    }
+
+    #[tokio::test]
+    async fn test_issue_with_nonexistent_labels() {
+        let db = create_test_db().await.unwrap();
+        
+        // Create issue with non-existent label
+        let mut issue = create_sample_issue();
+        issue.labels = vec!["nonexistent-label".to_string()];
+        
+        let issue_id = db.insert_issue(&issue).await.unwrap();
+        let retrieved = db.get_issue_by_id(issue_id).await.unwrap().unwrap();
+        
+        // Should succeed but have no labels since the label doesn't exist
+        assert_eq!(retrieved.labels.len(), 0, "Issue should have no labels when referenced labels don't exist");
+    }
+}
+
