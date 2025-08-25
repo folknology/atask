@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{board.title}} - Kanban Board</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f5f7fa;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .board-container {
+            max-width: 1400px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .column {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            overflow: hidden;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .column:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .column-header {
+            padding: 1.5rem;
+            border-bottom: 3px solid;
+            font-weight: 600;
+            font-size: 1.1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .column-evaluating .column-header {
+            background-color: #fef2c0;
+            border-bottom-color: #d97706;
+            color: #92400e;
+        }
+
+        .column-preparing .column-header {
+            background-color: #fef3c7;
+            border-bottom-color: #f59e0b;
+            color: #92400e;
+        }
+
+        .column-progressing .column-header {
+            background-color: #bfdbfe;
+            border-bottom-color: #3b82f6;
+            color: #1e40af;
+        }
+
+        .column-done .column-header {
+            background-color: #bbf7d0;
+            border-bottom-color: #10b981;
+            color: #047857;
+        }
+
+        .card-count {
+            background: rgba(255, 255, 255, 0.8);
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .cards {
+            padding: 1rem;
+            min-height: 200px;
+        }
+
+        .card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .card:last-child {
+            margin-bottom: 0;
+        }
+
+        .card:hover {
+            border-color: #d1d5db;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            transform: translateY(-1px);
+        }
+
+        .card-number {
+            color: #6b7280;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .card-title {
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 0.5rem;
+            line-height: 1.4;
+        }
+
+        .card-body {
+            color: #6b7280;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            margin-bottom: 0.75rem;
+            max-height: 60px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .card-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+        }
+
+        .priority {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            letter-spacing: 0.5px;
+        }
+
+        .priority-low {
+            background-color: #d1fae5;
+            color: #047857;
+        }
+
+        .priority-medium {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+
+        .priority-high {
+            background-color: #fed7d7;
+            color: #dc2626;
+        }
+
+        .priority-critical {
+            background-color: #fecaca;
+            color: #991b1b;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        .assignee {
+            color: #6b7280;
+            font-style: italic;
+        }
+
+        .labels {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+            margin-top: 0.5rem;
+        }
+
+        .label {
+            background-color: #e5e7eb;
+            color: #4b5563;
+            padding: 0.2rem 0.5rem;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 500;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #9ca3af;
+            padding: 2rem;
+            font-style: italic;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .stat-label {
+            color: #6b7280;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.3s ease;
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 0;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            width: 90%;
+            max-width: 800px;
+            max-height: 85vh;
+            overflow: hidden;
+            animation: slideIn 0.3s ease;
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .modal-title {
+            margin: 0;
+            font-size: 1.4rem;
+            font-weight: 600;
+            line-height: 1.3;
+            flex: 1;
+            margin-right: 1rem;
+        }
+
+        .modal-issue-number {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-bottom: 0.5rem;
+        }
+
+        .close {
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+            padding: 0;
+            background: none;
+            border: none;
+            opacity: 0.8;
+            transition: opacity 0.2s ease;
+        }
+
+        .close:hover,
+        .close:focus {
+            opacity: 1;
+        }
+
+        .modal-body {
+            padding: 2rem;
+            max-height: 60vh;
+            overflow-y: auto;
+            line-height: 1.6;
+        }
+
+        .modal-body h1, .modal-body h2, .modal-body h3,
+        .modal-body h4, .modal-body h5, .modal-body h6 {
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+            color: #111827;
+        }
+
+        .modal-body h1 { font-size: 1.5rem; }
+        .modal-body h2 { font-size: 1.3rem; }
+        .modal-body h3 { font-size: 1.1rem; }
+
+        .modal-body p {
+            margin-bottom: 1rem;
+            color: #374151;
+        }
+
+        .modal-body ul, .modal-body ol {
+            margin: 1rem 0;
+            padding-left: 1.5rem;
+        }
+
+        .modal-body li {
+            margin-bottom: 0.5rem;
+        }
+
+        .modal-body blockquote {
+            border-left: 4px solid #667eea;
+            background-color: #f8fafc;
+            padding: 1rem 1.5rem;
+            margin: 1.5rem 0;
+            font-style: italic;
+        }
+
+        .modal-body pre {
+            background-color: #f8fafc;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 1rem;
+            margin: 1rem 0;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9rem;
+        }
+
+        .modal-body code {
+            background-color: #f3f4f6;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9rem;
+        }
+
+        .modal-body pre code {
+            background: none;
+            padding: 0;
+        }
+
+        .modal-body table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+
+        .modal-body th,
+        .modal-body td {
+            border: 1px solid #e5e7eb;
+            padding: 0.75rem;
+            text-align: left;
+        }
+
+        .modal-body th {
+            background-color: #f9fafb;
+            font-weight: 600;
+        }
+
+        .modal-body a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .modal-body a:hover {
+            text-decoration: underline;
+        }
+
+        .modal-footer {
+            background-color: #f9fafb;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .modal-meta {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            font-size: 0.9rem;
+            color: #6b7280;
+        }
+
+        .modal-priority {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            letter-spacing: 0.5px;
+        }
+
+        .modal-labels {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+        }
+
+        .modal-label {
+            background-color: #e5e7eb;
+            color: #4b5563;
+            padding: 0.2rem 0.5rem;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 500;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        /* Make issue number clickable */
+        .card-number {
+            cursor: pointer;
+            transition: color 0.2s ease;
+        }
+
+        .card-number:hover {
+            color: #667eea;
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8rem;
+            }
+            
+            .board {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .modal-content {
+                width: 95%;
+                margin: 10px auto;
+                max-height: 95vh;
+            }
+
+            .modal-body {
+                padding: 1.5rem;
+                max-height: 70vh;
+            }
+
+            .modal-footer {
+                padding: 1rem 1.5rem;
+                flex-direction: column;
+                gap: 1rem;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{board.title}}</h1>
+        <p>Last updated: {{board.last_updated.format("%B %d, %Y at %H:%M")}}</p>
+    </div>
+
+    <div class="board-container">
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number">{{board.total_cards()}}</div>
+                <div class="stat-label">Total Issues</div>
+            </div>
+            {% for column in board.columns %}
+            <div class="stat-card">
+                <div class="stat-number">{{column.cards.len()}}</div>
+                <div class="stat-label">{{column.title}}</div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="board">
+            {% for column in board.columns %}
+            <div class="column column-{{column.id}}">
+                <div class="column-header">
+                    <span>{{column.title}}</span>
+                    <span class="card-count">{{column.cards.len()}}</span>
+                </div>
+                <div class="cards">
+                    {% if column.cards.len() > 0 %}
+                        {% for card in column.cards %}
+                        <div class="card" 
+                             data-issue-number="{{card.issue_number}}"
+                             data-title="{{card.title}}"
+                             data-body-html="{{card.body_html|escape}}"
+                             data-priority="{{card.priority}}"
+                             {% match card.assignee %}
+                                {% when Some with (assignee) %}
+                             data-assignee="{{assignee}}"
+                                {% when None %}
+                             data-assignee=""
+                             {% endmatch %}
+                             data-labels="{{card.labels.join(",")}}"
+                             data-created-at="{{card.created_at.format("%B %d, %Y at %H:%M")}}"
+                             data-updated-at="{{card.updated_at.format("%B %d, %Y at %H:%M")}}">
+                            <div class="card-number" onclick="showIssueModal(this.parentElement)">#{{card.issue_number}}</div>
+                            <div class="card-title">{{card.title}}</div>
+                            <div class="card-body">{{card.body_html|safe}}</div>
+                            <div class="card-meta">
+                                <span class="priority priority-{{card.priority|lower}}">{{card.priority}}</span>
+                                {% match card.assignee %}
+                                    {% when Some with (assignee) %}
+                                    <span class="assignee">@{{assignee}}</span>
+                                    {% when None %}
+                                {% endmatch %}
+                            </div>
+                            {% if card.labels.len() > 0 %}
+                            <div class="labels">
+                                {% for label in card.labels %}
+                                <span class="label">{{label}}</span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="empty-state">
+                            No issues in this column
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Issue Details Modal -->
+    <div id="issueModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="modal-issue-number" id="modalIssueNumber"></div>
+                    <h2 class="modal-title" id="modalTitle"></h2>
+                </div>
+                <button class="close" onclick="closeIssueModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Issue description will be loaded here -->
+            </div>
+            <div class="modal-footer">
+                <div class="modal-meta">
+                    <span class="modal-priority" id="modalPriority"></span>
+                    <span id="modalAssignee"></span>
+                </div>
+                <div class="modal-labels" id="modalLabels">
+                    <!-- Labels will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showIssueModal(cardElement) {
+            const modal = document.getElementById('issueModal');
+            const modalIssueNumber = document.getElementById('modalIssueNumber');
+            const modalTitle = document.getElementById('modalTitle');
+            const modalBody = document.getElementById('modalBody');
+            const modalPriority = document.getElementById('modalPriority');
+            const modalAssignee = document.getElementById('modalAssignee');
+            const modalLabels = document.getElementById('modalLabels');
+            
+            // Get data from card element
+            const issueNumber = cardElement.dataset.issueNumber;
+            const title = cardElement.dataset.title;
+            const bodyHtml = cardElement.dataset.bodyHtml;
+            const priority = cardElement.dataset.priority;
+            const assignee = cardElement.dataset.assignee;
+            const labels = cardElement.dataset.labels;
+            const createdAt = cardElement.dataset.createdAt;
+            const updatedAt = cardElement.dataset.updatedAt;
+            
+            // Populate modal with data
+            modalIssueNumber.textContent = `Issue #${issueNumber}`;
+            modalTitle.textContent = title;
+            modalBody.innerHTML = bodyHtml;
+            
+            // Set priority with appropriate styling
+            modalPriority.textContent = priority;
+            modalPriority.className = `modal-priority priority-${priority.toLowerCase()}`;
+            
+            // Set assignee
+            if (assignee && assignee.trim()) {
+                modalAssignee.textContent = `@${assignee}`;
+                modalAssignee.style.display = 'inline';
+            } else {
+                modalAssignee.style.display = 'none';
+            }
+            
+            // Set labels
+            modalLabels.innerHTML = '';
+            if (labels && labels.trim()) {
+                const labelArray = labels.split(',');
+                labelArray.forEach(label => {
+                    if (label.trim()) {
+                        const labelSpan = document.createElement('span');
+                        labelSpan.className = 'modal-label';
+                        labelSpan.textContent = label.trim();
+                        modalLabels.appendChild(labelSpan);
+                    }
+                });
+            }
+            
+            // Show modal
+            modal.style.display = 'block';
+            document.body.style.overflow = 'hidden'; // Prevent scrolling background
+        }
+        
+        function closeIssueModal() {
+            const modal = document.getElementById('issueModal');
+            modal.style.display = 'none';
+            document.body.style.overflow = 'auto'; // Restore scrolling
+        }
+        
+        // Close modal when clicking outside of it
+        window.onclick = function(event) {
+            const modal = document.getElementById('issueModal');
+            if (event.target === modal) {
+                closeIssueModal();
+            }
+        }
+        
+        // Close modal with Escape key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeIssueModal();
+            }
+        });
+    </script>
+</body>
+</html>

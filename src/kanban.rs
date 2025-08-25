@@ -28,6 +28,7 @@ pub struct KanbanCard {
     pub issue_number: u64,
     pub title: String,
     pub body: Option<String>,
+    pub body_html: String, // Rendered markdown HTML
     pub assignee: Option<String>,
     pub labels: Vec<String>,
     pub priority: Priority,
@@ -48,6 +49,17 @@ pub enum Priority {
 impl Default for Priority {
     fn default() -> Self {
         Priority::Medium
+    }
+}
+
+impl std::fmt::Display for Priority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Priority::Low => write!(f, "Low"),
+            Priority::Medium => write!(f, "Medium"),
+            Priority::High => write!(f, "High"),
+            Priority::Critical => write!(f, "Critical"),
+        }
     }
 }
 
@@ -104,10 +116,18 @@ impl KanbanColumn {
 impl KanbanCard {
     /// Create a new Kanban card from a GitHub Issue
     pub fn from_github_issue(issue: &Issue) -> Self {
+        // Use the imported markdown_to_html function
+        use crate::web::markdown_to_html;
+        
+        let body_html = issue.body.as_ref()
+            .map(|body| markdown_to_html(body))
+            .unwrap_or_else(|| "No description".to_string());
+            
         Self {
             issue_number: issue.number,
             title: issue.title.clone(),
             body: issue.body.clone(),
+            body_html,
             assignee: issue.assignee.as_ref().map(|a| a.login.clone()),
             labels: issue.labels.iter().map(|label| label.name.clone()).collect(),
             priority: Priority::default(), // We'll determine this from labels later
@@ -287,6 +307,7 @@ mod tests {
             issue_number: 1,
             title: "Test Issue".to_string(),
             body: None,
+            body_html: "No description".to_string(),
             assignee: None,
             labels: Vec::new(),
             priority: Priority::default(),
@@ -304,6 +325,7 @@ mod tests {
             issue_number: 1,
             title: "Critical Bug".to_string(),
             body: None,
+            body_html: "No description".to_string(),
             assignee: None,
             labels: vec!["bug".to_string(), "critical".to_string()],
             priority: Priority::default(),
@@ -337,6 +359,7 @@ mod tests {
             issue_number: 1,
             title: "Test Issue".to_string(),
             body: None,
+            body_html: "No description".to_string(),
             assignee: None,
             labels: Vec::new(),
             priority: Priority::Medium,
@@ -367,6 +390,7 @@ mod tests {
             issue_number: 1,
             title: "Issue 1".to_string(),
             body: None,
+            body_html: "No description".to_string(),
             assignee: None,
             labels: Vec::new(),
             priority: Priority::Medium,
@@ -379,6 +403,7 @@ mod tests {
             issue_number: 2,
             title: "Issue 2".to_string(),
             body: None,
+            body_html: "No description".to_string(),
             assignee: None,
             labels: Vec::new(),
             priority: Priority::High,

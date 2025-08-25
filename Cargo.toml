@@ -21,6 +21,9 @@ reqwest = { version = "0.12", features = ["json"] }
 axum = { version = "0.7", features = ["macros"] }
 # Templating engine
 askama = { version = "0.12", features = ["with-axum"] }
+askama_axum = "0.4"
+# Markdown parsing
+pulldown-cmark = "0.10"
 # Additional utilities
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "fs"] }
@@ -28,3 +31,5 @@ tower-http = { version = "0.5", features = ["cors", "fs"] }
 [dev-dependencies]
 # Temporary directories for testing
 tempfile = "3.8"
+# Web testing framework
+axum-test = "15.0"

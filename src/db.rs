@@ -1,7 +1,8 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use libsql::{Builder, Connection, Database};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::process::Command;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -662,6 +663,173 @@ impl TaskDatabase {
         }
 
         Ok(())
+    }
+
+    /// Load GitHub issues using the gh CLI command
+    pub async fn load_github_issues_via_cli(&self) -> Result<usize> {
+        // First, check if gh CLI is available
+        let gh_check = Command::new("gh")
+            .args(["--version"])
+            .output()
+            .context("Failed to check if 'gh' CLI is installed")?;
+        
+        if !gh_check.status.success() {
+            anyhow::bail!("GitHub CLI (gh) is not installed or not available");
+        }
+        
+        // Run gh issue list command to get JSON output
+        let output = Command::new("gh")
+            .args([
+                "issue", "list", 
+                "--json", "number,title,body,state,labels,assignees,createdAt,updatedAt",
+                "--limit", "100"  // Limit to avoid too many issues
+            ])
+            .output()
+            .context("Failed to execute 'gh issue list' command")?;
+        
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("GitHub CLI command failed: {}", stderr);
+        }
+        
+        let stdout = String::from_utf8(output.stdout)
+            .context("Invalid UTF-8 in gh command output")?;
+        
+        let issues_json: Value = serde_json::from_str(&stdout)
+            .context("Failed to parse JSON from gh command")?;
+        
+        let issues_array = issues_json.as_array()
+            .context("Expected JSON array from gh issue list")?;
+        
+        let mut loaded_count = 0;
+        
+        for issue_value in issues_array {
+            let issue_number = issue_value["number"].as_u64()
+                .context("Issue number should be a number")?;
+            
+            // Check if we already have this issue
+            if let Ok(existing_issues) = self.get_all_issues().await {
+                if existing_issues.iter().any(|issue| {
+                    issue.title.contains(&format!("#{}", issue_number)) ||
+                    issue.description.as_ref().map(|d| d.contains(&format!("#{}", issue_number))).unwrap_or(false)
+                }) {
+                    continue; // Skip if already exists
+                }
+            }
+            
+            let title = issue_value["title"].as_str()
+                .unwrap_or("Untitled Issue")
+                .to_string();
+            
+            let body = issue_value["body"].as_str()
+                .map(|s| s.to_string());
+            
+            let state = issue_value["state"].as_str()
+                .unwrap_or("open");
+            
+            let status = match state.to_lowercase().as_str() {
+                "closed" => IssueStatus::Closed,
+                _ => IssueStatus::Open,
+            };
+            
+            // Parse labels and create any missing labels in the database
+            let labels = if let Some(labels_array) = issue_value["labels"].as_array() {
+                let mut issue_labels = Vec::new();
+                for label_obj in labels_array {
+                    if let Some(label_name) = label_obj["name"].as_str() {
+                        // Create the label if it doesn't exist
+                        if self.get_label_by_name(label_name).await?.is_none() {
+                            let label_color = label_obj["color"].as_str()
+                                .unwrap_or("808080"); // Default gray color
+                            let label_description = label_obj["description"].as_str()
+                                .unwrap_or("");
+                            
+                            let new_label = Label {
+                                id: None,
+                                name: label_name.to_string(),
+                                color: format!("#{}", label_color),
+                                description: if label_description.is_empty() {
+                                    None
+                                } else {
+                                    Some(label_description.to_string())
+                                },
+                                created_at: Utc::now(),
+                            };
+                            
+                            if let Err(e) = self.insert_label(&new_label).await {
+                                eprintln!("⚠️  Failed to create label '{}': {}", label_name, e);
+                            }
+                        }
+                        issue_labels.push(label_name.to_string());
+                    }
+                }
+                issue_labels
+            } else {
+                vec![]
+            };
+            
+            // Parse assignee
+            let assignee = if let Some(assignees_array) = issue_value["assignees"].as_array() {
+                assignees_array.first()
+                    .and_then(|assignee| assignee["login"].as_str())
+                    .map(|s| s.to_string())
+            } else {
+                None
+            };
+            
+            // Parse dates
+            let created_at = if let Some(created_str) = issue_value["createdAt"].as_str() {
+                DateTime::parse_from_rfc3339(created_str)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now())
+            } else {
+                Utc::now()
+            };
+            
+            let updated_at = if let Some(updated_str) = issue_value["updatedAt"].as_str() {
+                DateTime::parse_from_rfc3339(updated_str)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now())
+            } else {
+                Utc::now()
+            };
+            
+            // Determine priority from labels
+            let priority = if labels.iter().any(|l| l.to_lowercase().contains("critical")) {
+                IssuePriority::Critical
+            } else if labels.iter().any(|l| l.to_lowercase().contains("high")) {
+                IssuePriority::High
+            } else if labels.iter().any(|l| l.to_lowercase().contains("low")) {
+                IssuePriority::Low
+            } else {
+                IssuePriority::Medium
+            };
+            
+            // Create the issue
+            let issue = Issue {
+                id: None,
+                title: format!("#{}: {}", issue_number, title),
+                description: body,
+                status,
+                priority,
+                created_at,
+                updated_at,
+                assignee,
+                labels,
+            };
+            
+            // Insert into database
+            match self.insert_issue(&issue).await {
+                Ok(_) => {
+                    loaded_count += 1;
+                }
+                Err(e) => {
+                    eprintln!("⚠️  Failed to insert issue #{}: {}", issue_number, e);
+                }
+            }
+        }
+        
+        Ok(loaded_count)
     }
 }
 
