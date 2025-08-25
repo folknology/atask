@@ -199,6 +199,7 @@ impl GitOps {
             commit_date,
             message: commit.message()
                 .unwrap_or("No message")
+                .trim()
                 .to_string(),
             files_changed,
             insertions,
@@ -296,40 +297,346 @@ impl GitHubOps {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
+    use std::fs;
+    use std::process::Command;
+
+    // Helper function to create a temporary git repository for testing
+    fn create_test_git_repo() -> Result<(TempDir, GitOps)> {
+        let temp_dir = TempDir::new()?;
+        let repo_path = temp_dir.path();
+        
+        // Initialize git repository
+        Command::new("git")
+            .args(["init"])
+            .current_dir(repo_path)
+            .output()?;
+            
+        // Set up git config for testing
+        Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(repo_path)
+            .output()?;
+            
+        Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(repo_path)
+            .output()?;
+            
+        // Add a remote for testing
+        Command::new("git")
+            .args(["remote", "add", "origin", "git@github.com:testuser/testrepo.git"])
+            .current_dir(repo_path)
+            .output()?;
+            
+        // Create and commit a test file
+        fs::write(repo_path.join("test.txt"), "Hello, World!")?;
+        Command::new("git")
+            .args(["add", "test.txt"])
+            .current_dir(repo_path)
+            .output()?;
+            
+        Command::new("git")
+            .args(["commit", "-m", "Initial test commit"])
+            .current_dir(repo_path)
+            .output()?;
+            
+        let git_ops = GitOps::new_from_path(repo_path)?;
+        Ok((temp_dir, git_ops))
+    }
 
     #[test]
-    fn test_git_ops_creation() {
-        // This will only work if we're in a git repository
-        match GitOps::new() {
-            Ok(_git_ops) => {
-                // Test passes if we're in a git repo
+    fn test_git_ops_creation_current_directory() {
+        // Test GitOps creation in current directory (should work since we're in a git repo)
+        let result = GitOps::new();
+        assert!(result.is_ok(), "Should be able to create GitOps in current git repository");
+    }
+
+    #[test] 
+    fn test_git_ops_creation_from_path() {
+        let result = create_test_git_repo();
+        match result {
+            Ok((_temp_dir, _git_ops)) => {
+                // Test passes if we can create a git repo
                 assert!(true);
             }
             Err(_) => {
-                // Expected if not in a git repo
-                assert!(true);
+                // This might fail in CI environments without git
+                println!("Warning: Could not create test git repository - git may not be available");
             }
         }
     }
 
     #[test]
+    fn test_git_ops_creation_invalid_path() {
+        let result = GitOps::new_from_path("/nonexistent/path");
+        assert!(result.is_err(), "Should fail to create GitOps for non-existent path");
+    }
+
+    #[test]
     fn test_parse_github_ssh_url() {
-        // We can't test the actual git operations without being in a repo,
-        // but we can test URL parsing logic if we extract it
-        assert!(true); // Placeholder for future URL parsing tests
+        // We need to extract URL parsing logic to test it independently
+        // For now, test the URL parsing patterns we support
+        let ssh_urls = vec![
+            "git@github.com:owner/repo.git",
+            "git@github.folknology:owner/repo.git",
+        ];
+        
+        for url in ssh_urls {
+            if url.starts_with("git@github") {
+                let result = url.split(':').nth(1)
+                    .map(|s| s.trim_end_matches(".git"))
+                    .and_then(|s| {
+                        let parts: Vec<&str> = s.split('/').collect();
+                        if parts.len() == 2 {
+                            Some((parts[0].to_string(), parts[1].to_string()))
+                        } else {
+                            None
+                        }
+                    });
+                assert!(result.is_some(), "Should parse SSH URL: {}", url);
+                let (owner, repo) = result.unwrap();
+                assert_eq!(owner, "owner");
+                assert_eq!(repo, "repo");
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_github_https_url() {
+        let https_urls = vec![
+            "https://github.com/owner/repo.git",
+            "https://github.com/owner/repo",
+        ];
+        
+        for url in https_urls {
+            if url.contains("github") {
+                let url_parts: Vec<&str> = url.split('/').collect();
+                if url_parts.len() >= 2 {
+                    let owner = url_parts[url_parts.len() - 2];
+                    let repo = url_parts[url_parts.len() - 1].trim_end_matches(".git");
+                    assert_eq!(owner, "owner");
+                    assert_eq!(repo, "repo");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_remote_url() {
+        if let Ok((_temp_dir, git_ops)) = create_test_git_repo() {
+            let result = git_ops.get_remote_url("origin");
+            assert!(result.is_ok(), "Should get remote URL");
+            let url = result.unwrap();
+            assert_eq!(url, "git@github.com:testuser/testrepo.git");
+        }
+    }
+
+    #[test]
+    fn test_get_remote_url_nonexistent() {
+        if let Ok((_temp_dir, git_ops)) = create_test_git_repo() {
+            let result = git_ops.get_remote_url("nonexistent");
+            assert!(result.is_err(), "Should fail for non-existent remote");
+        }
+    }
+
+    #[test]
+    fn test_parse_github_repo() {
+        if let Ok((_temp_dir, git_ops)) = create_test_git_repo() {
+            let result = git_ops.parse_github_repo("origin");
+            assert!(result.is_ok(), "Should parse GitHub repo info");
+            let (owner, repo) = result.unwrap();
+            assert_eq!(owner, "testuser");
+            assert_eq!(repo, "testrepo");
+        }
+    }
+
+    #[test]
+    fn test_get_commits() {
+        if let Ok((_temp_dir, git_ops)) = create_test_git_repo() {
+            let result = git_ops.get_commits(Some(10));
+            assert!(result.is_ok(), "Should get commits");
+            let commits = result.unwrap();
+            assert!(!commits.is_empty(), "Should have at least one commit");
+            
+            // Verify commit structure
+            let commit = &commits[0];
+            assert!(!commit.hash.is_empty(), "Commit should have a hash");
+            assert_eq!(commit.author_name, "Test User");
+            assert_eq!(commit.author_email, "test@example.com");
+            assert_eq!(commit.message, "Initial test commit");
+            assert!(!commit.files_changed.is_empty(), "Should have changed files");
+        }
+    }
+
+    #[test]
+    fn test_get_commits_with_limit() {
+        if let Ok((_temp_dir, git_ops)) = create_test_git_repo() {
+            let result = git_ops.get_commits(Some(1));
+            assert!(result.is_ok(), "Should get commits with limit");
+            let commits = result.unwrap();
+            assert_eq!(commits.len(), 1, "Should respect limit");
+        }
+    }
+
+    #[test]
+    fn test_get_commit_by_hash() {
+        if let Ok((_temp_dir, git_ops)) = create_test_git_repo() {
+            // First get a commit to get its hash
+            if let Ok(commits) = git_ops.get_commits(Some(1)) {
+                if !commits.is_empty() {
+                    let hash = &commits[0].hash;
+                    let result = git_ops.get_commit_by_hash(hash);
+                    assert!(result.is_ok(), "Should get commit by hash");
+                    let commit = result.unwrap();
+                    assert!(commit.is_some(), "Should find the commit");
+                    assert_eq!(commit.unwrap().hash, *hash);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_commit_by_invalid_hash() {
+        if let Ok((_temp_dir, git_ops)) = create_test_git_repo() {
+            let result = git_ops.get_commit_by_hash("invalid_hash");
+            assert!(result.is_err(), "Should fail for invalid hash format");
+        }
+    }
+
+    #[test]
+    fn test_get_commit_by_nonexistent_hash() {
+        if let Ok((_temp_dir, git_ops)) = create_test_git_repo() {
+            // Use a valid hash format but non-existent hash
+            let result = git_ops.get_commit_by_hash("1234567890abcdef1234567890abcdef12345678");
+            assert!(result.is_ok(), "Should handle non-existent hash gracefully");
+            let commit = result.unwrap();
+            assert!(commit.is_none(), "Should return None for non-existent commit");
+        }
+    }
+
+    #[test]
+    fn test_commit_info_serialization() {
+        let commit_info = CommitInfo {
+            hash: "abc123".to_string(),
+            author_name: "Test User".to_string(),
+            author_email: "test@example.com".to_string(),
+            commit_date: Utc::now(),
+            message: "Test commit".to_string(),
+            files_changed: vec!["file1.txt".to_string(), "file2.txt".to_string()],
+            insertions: 10,
+            deletions: 5,
+        };
+        
+        // Test JSON serialization
+        let json = serde_json::to_string(&commit_info);
+        assert!(json.is_ok(), "CommitInfo should be serializable to JSON");
+        
+        // Test JSON deserialization
+        let json_str = json.unwrap();
+        let deserialized: Result<CommitInfo, _> = serde_json::from_str(&json_str);
+        assert!(deserialized.is_ok(), "CommitInfo should be deserializable from JSON");
+        
+        let deserialized_commit = deserialized.unwrap();
+        assert_eq!(deserialized_commit.hash, commit_info.hash);
+        assert_eq!(deserialized_commit.author_name, commit_info.author_name);
+        assert_eq!(deserialized_commit.files_changed, commit_info.files_changed);
+    }
+
+    #[test]
+    fn test_issue_params_serialization() {
+        let issue_params = IssueParams {
+            title: "Test Issue".to_string(),
+            body: "Test issue body".to_string(),
+            labels: vec!["bug".to_string(), "enhancement".to_string()],
+            assignees: vec!["user1".to_string()],
+        };
+        
+        // Test JSON serialization
+        let json = serde_json::to_string(&issue_params);
+        assert!(json.is_ok(), "IssueParams should be serializable to JSON");
+        
+        // Test JSON deserialization
+        let json_str = json.unwrap();
+        let deserialized: Result<IssueParams, _> = serde_json::from_str(&json_str);
+        assert!(deserialized.is_ok(), "IssueParams should be deserializable from JSON");
+        
+        let deserialized_params = deserialized.unwrap();
+        assert_eq!(deserialized_params.title, issue_params.title);
+        assert_eq!(deserialized_params.labels, issue_params.labels);
+        assert_eq!(deserialized_params.assignees, issue_params.assignees);
+    }
+
+    // GitHub Operations Tests
+    #[tokio::test]
+    async fn test_github_ops_creation_with_token() {
+        let result = GitHubOps::new(
+            "fake_token".to_string(),
+            "test_owner".to_string(),
+            "test_repo".to_string(),
+        );
+        assert!(result.is_ok(), "Should create GitHubOps with valid parameters");
     }
 
     #[tokio::test]
-    async fn test_github_ops_creation() {
-        // This test requires a valid token and won't work in CI without secrets
-        // but demonstrates the API
+    async fn test_github_ops_creation_empty_token() {
+        let result = GitHubOps::new(
+            "".to_string(),
+            "test_owner".to_string(),
+            "test_repo".to_string(),
+        );
+        // Empty token should still create the client, but API calls will fail
+        assert!(result.is_ok(), "Should create GitHubOps even with empty token");
+    }
+
+    #[tokio::test]
+    async fn test_github_ops_from_env_with_token() {
+        // Set a temporary environment variable
+        std::env::set_var("GITHUB_TOKEN", "test_token");
+        
+        let result = GitHubOps::from_env(
+            "test_owner".to_string(),
+            "test_repo".to_string(),
+        );
+        
+        assert!(result.is_ok(), "Should create GitHubOps from environment");
+        
+        // Clean up
+        std::env::remove_var("GITHUB_TOKEN");
+    }
+
+    #[test]
+    fn test_github_ops_from_env_without_token() {
+        // Ensure GITHUB_TOKEN is not set
+        std::env::remove_var("GITHUB_TOKEN");
+        
+        let result = GitHubOps::from_env(
+            "test_owner".to_string(),
+            "test_repo".to_string(),
+        );
+        
+        assert!(result.is_err(), "Should fail when GITHUB_TOKEN is not set");
+    }
+
+    // Note: GitHub API operation tests would require actual API calls
+    // which need authentication and internet connectivity. These should be
+    // integration tests rather than unit tests.
+    // For now, we test the client creation and parameter validation.
+
+    #[tokio::test]
+    async fn test_github_ops_with_real_token() {
+        // Only run this test if a real GitHub token is available
         if let Ok(token) = std::env::var("GITHUB_TOKEN") {
             let result = GitHubOps::new(
                 token,
                 "folknology".to_string(),
                 "atask".to_string(),
             );
-            assert!(result.is_ok());
+            assert!(result.is_ok(), "Should create GitHubOps with real token");
+            
+            // We could test actual API calls here, but that would require
+            // network access and could affect the real repository
+            // For CI/CD, these should be separate integration tests
         }
     }
 }

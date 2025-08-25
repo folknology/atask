@@ -17,3 +17,7 @@ git2 = "0.18"
 octocrab = "0.38"
 # HTTP client for API calls
 reqwest = { version = "0.12", features = ["json"] }
+
+[dev-dependencies]
+# Temporary directories for testing
+tempfile = "3.8"
