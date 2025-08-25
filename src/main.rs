@@ -1,4 +1,5 @@
 mod db;
+pub mod git_ops;
 
 use anyhow::Result;
 use chrono::Utc;
