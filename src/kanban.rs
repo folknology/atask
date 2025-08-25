@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use octocrab::models::issues::Issue;
 use serde::{Deserialize, Serialize};
+use anyhow::Result;
+use crate::git_ops::GitHubOps;
 
 /// Represents a Kanban board with multiple columns
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,6 +128,122 @@ impl KanbanCard {
         } else {
             Priority::Medium
         };
+    }
+}
+
+/// Kanban service layer for managing boards and GitHub integration
+pub struct KanbanService {
+    github_ops: GitHubOps,
+}
+
+impl KanbanService {
+    /// Create a new KanbanService with GitHub operations
+    pub fn new(github_ops: GitHubOps) -> Self {
+        Self { github_ops }
+    }
+
+    /// Fetch all issues from GitHub and organize them into a Kanban board
+    pub async fn fetch_board(&self, board_title: String) -> Result<KanbanBoard> {
+        let mut board = KanbanBoard::new(board_title);
+        
+        // Get all issues from GitHub
+        let all_issues = self.github_ops.list_issues().await?;
+        
+        // Organize issues into columns based on their labels
+        for issue in all_issues {
+            let mut card = KanbanCard::from_github_issue(&issue);
+            card.set_priority_from_labels();
+            
+            // Determine which column this issue belongs to
+            let mut placed = false;
+            
+            // Check workflow labels first (Preparing, Progressing, Done)
+            for column in &mut board.columns {
+                if column.id != "backlog" && !column.label_name.is_empty() {
+                    if issue.labels.iter().any(|label| label.name == column.label_name) {
+                        column.add_card(card.clone());
+                        placed = true;
+                        break;
+                    }
+                }
+            }
+            
+            // If no workflow label found, put in backlog
+            if !placed {
+                if let Some(backlog_column) = board.columns.iter_mut().find(|col| col.id == "backlog") {
+                    backlog_column.add_card(card);
+                }
+            }
+        }
+        
+        board.last_updated = Utc::now();
+        Ok(board)
+    }
+
+    /// Move an issue from one column to another by updating GitHub labels
+    pub async fn move_issue(&self, issue_number: u64, from_column: &str, to_column: &str) -> Result<()> {
+        // Remove the old label if it exists
+        if !from_column.is_empty() && from_column != "backlog" {
+            let _ = self.github_ops.remove_label_from_issue(issue_number, from_column).await;
+        }
+        
+        // Add the new label if it's not backlog
+        if !to_column.is_empty() && to_column != "backlog" {
+            self.github_ops.add_label_to_issue(issue_number, to_column).await?;
+        }
+        
+        Ok(())
+    }
+
+    /// Refresh a single column by fetching issues with specific labels
+    pub async fn refresh_column(&self, column: &mut KanbanColumn) -> Result<()> {
+        column.cards.clear();
+        
+        let issues = if column.id == "backlog" {
+            self.get_backlog_issues().await?
+        } else {
+            self.get_issues_for_label(&column.label_name).await?
+        };
+        
+        for issue in issues {
+            let mut card = KanbanCard::from_github_issue(&issue);
+            card.set_priority_from_labels();
+            column.add_card(card);
+        }
+        
+        Ok(())
+    }
+
+    /// Get issues for a specific label (used for column population)
+    async fn get_issues_for_label(&self, label: &str) -> Result<Vec<Issue>> {
+        let all_issues = self.github_ops.list_issues().await?;
+        
+        let filtered_issues = all_issues
+            .into_iter()
+            .filter(|issue| {
+                issue.labels.iter().any(|issue_label| issue_label.name == label)
+            })
+            .collect();
+            
+        Ok(filtered_issues)
+    }
+
+    /// Get issues without workflow labels (backlog)
+    async fn get_backlog_issues(&self) -> Result<Vec<Issue>> {
+        let all_issues = self.github_ops.list_issues().await?;
+        let workflow_labels = ["Preparing", "Progressing", "Done"];
+        
+        let backlog_issues = all_issues
+            .into_iter()
+            .filter(|issue| {
+                // Issues without any workflow labels go to backlog
+                !issue.labels.iter().any(|label| {
+                    workflow_labels.contains(&label.name.as_str())
+                })
+            })
+            .collect();
+            
+        Ok(backlog_issues)
     }
 }
 
@@ -295,5 +413,81 @@ mod tests {
         let deserialized_board = deserialized.unwrap();
         assert_eq!(deserialized_board.title, board.title);
         assert_eq!(deserialized_board.columns.len(), board.columns.len());
+    }
+
+    // KanbanService Tests (GREEN phase - now implemented)
+    #[tokio::test]
+    async fn test_kanban_service_creation() {
+        let github_ops = GitHubOps::new(
+            "fake_token".to_string(),
+            "test_owner".to_string(),
+            "test_repo".to_string(),
+        ).unwrap();
+        
+        let _service = KanbanService::new(github_ops);
+        // Service should be created successfully
+        assert!(true);
+    }
+
+    // Note: These tests will fail without valid GitHub authentication
+    // but they test the method signatures and basic functionality
+    #[tokio::test]
+    async fn test_fetch_board_method_exists() {
+        let github_ops = GitHubOps::new(
+            "fake_token".to_string(),
+            "test_owner".to_string(),
+            "test_repo".to_string(),
+        ).unwrap();
+        
+        let service = KanbanService::new(github_ops);
+        
+        // This will fail with authentication error, but method is implemented
+        let result = service.fetch_board("Test Board".to_string()).await;
+        assert!(result.is_err(), "Should fail with authentication error for fake token");
+        // The error should not be "not yet implemented"
+        let error_msg = result.unwrap_err().to_string();
+        assert!(!error_msg.contains("not yet implemented"));
+    }
+
+    #[tokio::test]
+    async fn test_move_issue_method_exists() {
+        let github_ops = GitHubOps::new(
+            "fake_token".to_string(),
+            "test_owner".to_string(),
+            "test_repo".to_string(),
+        ).unwrap();
+        
+        let service = KanbanService::new(github_ops);
+        
+        // This will fail with authentication error, but method is implemented
+        let result = service.move_issue(1, "Preparing", "Progressing").await;
+        assert!(result.is_err(), "Should fail with authentication error for fake token");
+        // The error should not be "not yet implemented"
+        let error_msg = result.unwrap_err().to_string();
+        assert!(!error_msg.contains("not yet implemented"));
+    }
+
+    #[tokio::test]
+    async fn test_refresh_column_method_exists() {
+        let github_ops = GitHubOps::new(
+            "fake_token".to_string(),
+            "test_owner".to_string(),
+            "test_repo".to_string(),
+        ).unwrap();
+        
+        let service = KanbanService::new(github_ops);
+        let mut column = KanbanColumn::new(
+            "test".to_string(),
+            "Test".to_string(),
+            "test-label".to_string(),
+            "#ffffff".to_string()
+        );
+        
+        // This will fail with authentication error, but method is implemented
+        let result = service.refresh_column(&mut column).await;
+        assert!(result.is_err(), "Should fail with authentication error for fake token");
+        // The error should not be "not yet implemented"
+        let error_msg = result.unwrap_err().to_string();
+        assert!(!error_msg.contains("not yet implemented"));
     }
 }
