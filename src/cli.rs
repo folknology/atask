@@ -28,8 +28,25 @@ impl TableFormatter {
 
         // Rows with enhanced information
         for issue in issues {
-            let id = issue.id.unwrap_or(0);
-            let title = Self::truncate_title(&issue.title, 30);
+            // Extract GitHub issue number from title
+            let (github_id, clean_title) = if let Some(colon_pos) = issue.title.find(':') {
+                let prefix = &issue.title[..colon_pos];
+                if let Some(stripped) = prefix.strip_prefix('#') {
+                    if let Ok(gh_id) = stripped.parse::<u32>() {
+                        let clean = issue.title[colon_pos + 1..].trim();
+                        (Some(gh_id), clean.to_string())
+                    } else {
+                        (None, issue.title.clone())
+                    }
+                } else {
+                    (None, issue.title.clone())
+                }
+            } else {
+                (None, issue.title.clone())
+            };
+
+            let display_id = github_id.unwrap_or(issue.id.unwrap_or(0) as u32);
+            let title = Self::truncate_title(&clean_title, 30);
             let status = Self::format_status(&issue.status);
             let priority = Self::format_priority(&issue.priority);
             let assignee = Self::format_assignee(&issue.assignee);
@@ -37,7 +54,7 @@ impl TableFormatter {
 
             output.push_str(&format!(
                 "#{:<4} | {:<30} | {:<11} | {:<8} | {:<12} | {}\n",
-                id, title, status, priority, assignee, labels
+                display_id, title, status, priority, assignee, labels
             ));
         }
 
@@ -89,11 +106,28 @@ impl TableFormatter {
         output.push_str("---|-------|-------\n");
 
         for issue in issues {
-            let id = issue.id.unwrap_or(0);
-            let title = Self::truncate_title(&issue.title, 20);
+            // Extract GitHub issue number from title
+            let (github_id, clean_title) = if let Some(colon_pos) = issue.title.find(':') {
+                let prefix = &issue.title[..colon_pos];
+                if let Some(stripped) = prefix.strip_prefix('#') {
+                    if let Ok(gh_id) = stripped.parse::<u32>() {
+                        let clean = issue.title[colon_pos + 1..].trim();
+                        (Some(gh_id), clean.to_string())
+                    } else {
+                        (None, issue.title.clone())
+                    }
+                } else {
+                    (None, issue.title.clone())
+                }
+            } else {
+                (None, issue.title.clone())
+            };
+
+            let display_id = github_id.unwrap_or(issue.id.unwrap_or(0) as u32);
+            let title = Self::truncate_title(&clean_title, 20);
             let status = issue.status.to_string();
 
-            output.push_str(&format!("#{} | {} | {}\n", id, title, status));
+            output.push_str(&format!("#{} | {} | {}\n", display_id, title, status));
         }
 
         Ok(output)
@@ -186,8 +220,25 @@ impl TableFormatter {
 
         // Rows with colored information
         for issue in issues {
-            let id = issue.id.unwrap_or(0);
-            let title = Self::truncate_title(&issue.title, 30);
+            // Extract GitHub issue number from title
+            let (github_id, clean_title) = if let Some(colon_pos) = issue.title.find(':') {
+                let prefix = &issue.title[..colon_pos];
+                if let Some(stripped) = prefix.strip_prefix('#') {
+                    if let Ok(gh_id) = stripped.parse::<u32>() {
+                        let clean = issue.title[colon_pos + 1..].trim();
+                        (Some(gh_id), clean.to_string())
+                    } else {
+                        (None, issue.title.clone())
+                    }
+                } else {
+                    (None, issue.title.clone())
+                }
+            } else {
+                (None, issue.title.clone())
+            };
+
+            let display_id = github_id.unwrap_or(issue.id.unwrap_or(0) as u32);
+            let title = Self::truncate_title(&clean_title, 30);
             let status = Self::format_colored_status(&issue.status, colored);
             let priority = Self::format_colored_priority(&issue.priority, colored);
             let assignee = Self::format_assignee(&issue.assignee);
@@ -200,12 +251,12 @@ impl TableFormatter {
 
                 output.push_str(&format!(
                     "#{:<4} | {:<30} | {} | {} | {:<12} | {}\n",
-                    id, title, status_padded, priority_padded, assignee, labels
+                    display_id, title, status_padded, priority_padded, assignee, labels
                 ));
             } else {
                 output.push_str(&format!(
                     "#{:<4} | {:<30} | {:<11} | {:<8} | {:<12} | {}\n",
-                    id, title, status, priority, assignee, labels
+                    display_id, title, status, priority, assignee, labels
                 ));
             }
         }
@@ -239,11 +290,28 @@ impl TableFormatter {
         }
 
         for issue in issues {
-            let id = issue.id.unwrap_or(0);
-            let title = Self::truncate_title(&issue.title, 20);
+            // Extract GitHub issue number from title
+            let (github_id, clean_title) = if let Some(colon_pos) = issue.title.find(':') {
+                let prefix = &issue.title[..colon_pos];
+                if let Some(stripped) = prefix.strip_prefix('#') {
+                    if let Ok(gh_id) = stripped.parse::<u32>() {
+                        let clean = issue.title[colon_pos + 1..].trim();
+                        (Some(gh_id), clean.to_string())
+                    } else {
+                        (None, issue.title.clone())
+                    }
+                } else {
+                    (None, issue.title.clone())
+                }
+            } else {
+                (None, issue.title.clone())
+            };
+
+            let display_id = github_id.unwrap_or(issue.id.unwrap_or(0) as u32);
+            let title = Self::truncate_title(&clean_title, 20);
             let status = Self::format_colored_status(&issue.status, colored);
 
-            output.push_str(&format!("#{} | {} | {}\n", id, title, status));
+            output.push_str(&format!("#{} | {} | {}\n", display_id, title, status));
         }
 
         Ok(output)
