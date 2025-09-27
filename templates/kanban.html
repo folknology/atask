@@ -19,9 +19,9 @@
             --shadow-light: rgba(76, 79, 105, 0.05);
             --shadow-medium: rgba(76, 79, 105, 0.1);
             --shadow-heavy: rgba(76, 79, 105, 0.3);
-            --accent-color: #8839ef;   /* Mauve */
+            --accent-color: var(--ctp-blue);   /* Blue from progressing column */
             --accent-secondary: #1e66f5; /* Blue */
-            
+
             /* Catppuccin accent colors */
             --ctp-red: #d20f39;
             --ctp-maroon: #e64553;
@@ -51,9 +51,9 @@
             --shadow-light: rgba(24, 25, 38, 0.3);
             --shadow-medium: rgba(24, 25, 38, 0.4);
             --shadow-heavy: rgba(24, 25, 38, 0.6);
-            --accent-color: #c6a0f6;   /* Mauve */
+            --accent-color: var(--bg-tertiary);   /* Blue from progressing column */
             --accent-secondary: #8aadf4; /* Blue */
-            
+
             /* Catppuccin Macchiato accent colors */
             --ctp-red: #ed8796;
             --ctp-maroon: #ee99a0;
@@ -601,11 +601,11 @@
             .header h1 {
                 font-size: 1.8rem;
             }
-            
+
             .board {
                 grid-template-columns: 1fr;
             }
-            
+
             .stats {
                 grid-template-columns: repeat(2, 1fr);
             }
@@ -664,7 +664,7 @@
                 <div class="cards">
                     {% if column.cards.len() > 0 %}
                         {% for card in column.cards %}
-                        <div class="card" 
+                        <div class="card"
                              data-issue-number="{{card.issue_number}}"
                              data-title="{{card.title}}"
                              data-body-html="{{card.body_html|escape}}"
@@ -745,7 +745,7 @@
             const modalPriority = document.getElementById('modalPriority');
             const modalAssignee = document.getElementById('modalAssignee');
             const modalLabels = document.getElementById('modalLabels');
-            
+
             // Get data from card element
             const issueNumber = cardElement.dataset.issueNumber;
             const title = cardElement.dataset.title;
@@ -756,19 +756,19 @@
             const createdAt = cardElement.dataset.createdAt;
             const updatedAt = cardElement.dataset.updatedAt;
             const column = cardElement.dataset.column;
-            
+
             // Apply column-specific styling to modal header
             modalHeader.className = `modal-header ${column}`;
-            
+
             // Populate modal with data
             modalIssueNumber.textContent = `Issue #${issueNumber}`;
             modalTitle.textContent = title;
             modalBody.innerHTML = bodyHtml;
-            
+
             // Set priority with appropriate styling
             modalPriority.textContent = priority;
             modalPriority.className = `modal-priority priority-${priority.toLowerCase()}`;
-            
+
             // Set assignee
             if (assignee && assignee.trim()) {
                 modalAssignee.textContent = `@${assignee}`;
@@ -776,7 +776,7 @@
             } else {
                 modalAssignee.style.display = 'none';
             }
-            
+
             // Set labels
             modalLabels.innerHTML = '';
             if (labels && labels.trim()) {
@@ -790,18 +790,18 @@
                     }
                 });
             }
-            
+
             // Show modal
             modal.style.display = 'block';
             document.body.style.overflow = 'hidden'; // Prevent scrolling background
         }
-        
+
         function closeIssueModal() {
             const modal = document.getElementById('issueModal');
             modal.style.display = 'none';
             document.body.style.overflow = 'auto'; // Restore scrolling
         }
-        
+
         // Close modal when clicking outside of it
         window.onclick = function(event) {
             const modal = document.getElementById('issueModal');
@@ -809,26 +809,26 @@
                 closeIssueModal();
             }
         }
-        
+
         // Close modal with Escape key
         document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') {
                 closeIssueModal();
             }
         });
-        
+
         // Theme switching functionality
         function toggleTheme() {
             const body = document.body;
             const themeIcon = document.getElementById('themeIcon');
             const themeText = document.getElementById('themeText');
-            
+
             // Toggle theme attribute
             const currentTheme = body.getAttribute('data-theme');
             const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            
+
             body.setAttribute('data-theme', newTheme);
-            
+
             // Update button appearance
             if (newTheme === 'dark') {
                 themeIcon.textContent = '☀️';
@@ -837,22 +837,22 @@
                 themeIcon.textContent = '🌙';
                 themeText.textContent = 'Dark';
             }
-            
+
             // Save preference to localStorage
             localStorage.setItem('kanban-theme', newTheme);
         }
-        
+
         // Initialize theme on page load
         function initializeTheme() {
             const body = document.body;
             const themeIcon = document.getElementById('themeIcon');
             const themeText = document.getElementById('themeText');
-            
+
             // Check for saved theme preference or default to light
             const savedTheme = localStorage.getItem('kanban-theme') || 'light';
-            
+
             body.setAttribute('data-theme', savedTheme);
-            
+
             // Update button appearance based on initial theme
             if (savedTheme === 'dark') {
                 themeIcon.textContent = '☀️';
@@ -862,7 +862,7 @@
                 themeText.textContent = 'Dark';
             }
         }
-        
+
         // Initialize theme when page loads
         document.addEventListener('DOMContentLoaded', initializeTheme);
     </script>

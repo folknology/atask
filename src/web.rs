@@ -1,17 +1,17 @@
+use askama::Template;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{Html, IntoResponse, Response},
     Json, Router,
 };
+use chrono::Utc;
+use pulldown_cmark::{html, Options, Parser};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use askama::Template;
-use chrono::Utc;
-use pulldown_cmark::{Parser, Options, html};
 
-use crate::db::{TaskDatabase, IssueStatus, IssuePriority};
-use crate::kanban::{KanbanBoard, KanbanColumn, KanbanCard, Priority};
+use crate::db::{IssuePriority, IssueStatus, TaskDatabase};
+use crate::kanban::{KanbanBoard, KanbanCard, KanbanColumn, Priority};
 
 /// Shared application state
 #[derive(Clone)]
@@ -51,7 +51,7 @@ impl KanbanWebServer {
     /// Create a new web server with database
     pub fn new(db: TaskDatabase) -> Self {
         let app_state = AppState { db: Arc::new(db) };
-        
+
         Self { app_state }
     }
 
@@ -61,7 +61,10 @@ impl KanbanWebServer {
             .route("/", axum::routing::get(handlers::kanban_board))
             .route("/api/board", axum::routing::get(handlers::api_board))
             .route("/api/move", axum::routing::post(handlers::api_move_issue))
-            .route("/api/refresh/:column_id", axum::routing::post(handlers::api_refresh_column))
+            .route(
+                "/api/refresh/:column_id",
+                axum::routing::post(handlers::api_refresh_column),
+            )
             .with_state(self.app_state.clone())
     }
 
@@ -69,12 +72,12 @@ impl KanbanWebServer {
     pub async fn serve(&self, port: u16) -> anyhow::Result<()> {
         let app = self.create_router();
         let addr = format!("0.0.0.0:{}", port);
-        
+
         println!("🚀 Kanban web server starting on http://{}", addr);
-        
+
         let listener = tokio::net::TcpListener::bind(&addr).await?;
         axum::serve(listener, app).await?;
-        
+
         Ok(())
     }
 }
@@ -83,17 +86,17 @@ impl KanbanWebServer {
 pub fn markdown_to_html(markdown: &str) -> String {
     // First, unescape the newline characters if they're stored as literal \n
     let processed_markdown = markdown
-        .replace("\\n", "\n")  // Replace literal \n with actual newlines
-        .replace("\\t", "\t")  // Replace literal \t with actual tabs
+        .replace("\\n", "\n") // Replace literal \n with actual newlines
+        .replace("\\t", "\t") // Replace literal \t with actual tabs
         .replace("\\r", "\r"); // Replace literal \r with actual carriage returns
-    
+
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_FOOTNOTES);
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_SMART_PUNCTUATION);
-    
+
     let parser = Parser::new_ext(&processed_markdown, options);
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
@@ -107,18 +110,19 @@ pub mod handlers {
     /// Helper function to create a kanban board from database issues
     async fn create_board_from_db(db: &TaskDatabase) -> Result<KanbanBoard, anyhow::Error> {
         let all_issues = db.get_all_issues().await?;
-        
+
         // Only show open issues
-        let open_issues: Vec<_> = all_issues.into_iter()
+        let open_issues: Vec<_> = all_issues
+            .into_iter()
             .filter(|issue| matches!(issue.status, IssueStatus::Open))
             .collect();
-        
+
         // Create columns
         let mut evaluating_cards = Vec::new();
         let mut preparing_cards = Vec::new();
         let mut progressing_cards = Vec::new();
         let mut done_cards = Vec::new();
-        
+
         // Convert database issues to kanban cards and organize by labels
         for issue in open_issues {
             let priority = match issue.priority {
@@ -127,12 +131,14 @@ pub mod handlers {
                 IssuePriority::High => Priority::High,
                 IssuePriority::Critical => Priority::Critical,
             };
-            
+
             // Render markdown to HTML
-            let body_html = issue.description.as_ref()
+            let body_html = issue
+                .description
+                .as_ref()
                 .map(|body| markdown_to_html(body))
                 .unwrap_or_else(|| "No description".to_string());
-                
+
             let card = KanbanCard {
                 issue_number: issue.id.unwrap_or(0) as u64, // Use database ID as issue number
                 title: issue.title,
@@ -145,13 +151,25 @@ pub mod handlers {
                 updated_at: issue.updated_at,
                 comments_count: 0, // Default to 0 for now
             };
-            
+
             // Organize by labels - check for workflow labels
-            let has_done = issue.labels.iter().any(|label| label.eq_ignore_ascii_case("done"));
-            let has_progressing = issue.labels.iter().any(|label| label.eq_ignore_ascii_case("progressing"));
-            let has_preparing = issue.labels.iter().any(|label| label.eq_ignore_ascii_case("preparing"));
-            let has_evaluating = issue.labels.iter().any(|label| label.eq_ignore_ascii_case("evaluating"));
-            
+            let has_done = issue
+                .labels
+                .iter()
+                .any(|label| label.eq_ignore_ascii_case("done"));
+            let has_progressing = issue
+                .labels
+                .iter()
+                .any(|label| label.eq_ignore_ascii_case("progressing"));
+            let has_preparing = issue
+                .labels
+                .iter()
+                .any(|label| label.eq_ignore_ascii_case("preparing"));
+            let has_evaluating = issue
+                .labels
+                .iter()
+                .any(|label| label.eq_ignore_ascii_case("evaluating"));
+
             if has_done {
                 done_cards.push(card);
             } else if has_progressing {
@@ -165,7 +183,7 @@ pub mod handlers {
                 evaluating_cards.push(card);
             }
         }
-        
+
         Ok(KanbanBoard {
             title: "Task Board".to_string(),
             last_updated: Utc::now(),
@@ -250,12 +268,16 @@ pub mod handlers {
                 });
             }
         };
-        
+
         // First check if the issue exists
         match state.db.get_issue_by_id(request.issue_number as i64).await {
             Ok(Some(_)) => {
                 // Issue exists, proceed with status update
-                match state.db.update_issue_status(request.issue_number as i64, new_status).await {
+                match state
+                    .db
+                    .update_issue_status(request.issue_number as i64, new_status)
+                    .await
+                {
                     Ok(_) => Json(ApiResponse {
                         success: true,
                         data: Some(()),
@@ -270,7 +292,7 @@ pub mod handlers {
                         message: Some(format!("Failed to move issue: {}", err)),
                     }),
                 }
-            },
+            }
             Ok(None) => {
                 // Issue doesn't exist
                 Json(ApiResponse {
@@ -278,7 +300,7 @@ pub mod handlers {
                     data: None,
                     message: Some(format!("Issue #{} not found", request.issue_number)),
                 })
-            },
+            }
             Err(err) => {
                 // Database error
                 Json(ApiResponse {
@@ -304,7 +326,7 @@ pub mod handlers {
                 message: Some(format!("Column '{}' not found", column_id)),
             });
         }
-        
+
         // For database-based implementation, we can always refresh successfully
         // since the data comes directly from the database
         Json(ApiResponse {
@@ -349,7 +371,7 @@ mod tests {
     async fn test_kanban_board_handler_works() {
         let server = create_test_server().await;
         let state = State(server.app_state.clone());
-        
+
         // Handler should work with empty database
         let result = handlers::kanban_board(state).await;
         // Should succeed with empty board
@@ -360,7 +382,7 @@ mod tests {
     async fn test_api_board_handler_works() {
         let server = create_test_server().await;
         let state = State(server.app_state.clone());
-        
+
         // Handler should work with empty database
         let result = handlers::api_board(state).await;
         // Should return a JSON response with success=true and empty board
@@ -380,7 +402,7 @@ mod tests {
             from_column: "preparing".to_string(),
             to_column: "progressing".to_string(),
         });
-        
+
         // Should fail since issue doesn't exist
         let result = handlers::api_move_issue(state, request).await;
         assert!(!result.0.success);
@@ -392,7 +414,7 @@ mod tests {
         let server = create_test_server().await;
         let state = State(server.app_state.clone());
         let column_id = Path("preparing".to_string());
-        
+
         // Should succeed for valid column
         let result = handlers::api_refresh_column(state, column_id).await;
         assert!(result.0.success);
@@ -404,7 +426,7 @@ mod tests {
         let server = create_test_server().await;
         let state = State(server.app_state.clone());
         let column_id = Path("invalid_column".to_string());
-        
+
         // Should fail for invalid column
         let result = handlers::api_refresh_column(state, column_id).await;
         assert!(!result.0.success);
@@ -415,15 +437,24 @@ mod tests {
     fn test_markdown_to_html_with_newlines() {
         // Test that literal \n characters are properly converted to newlines
         let input = "This is line 1\nThis is line 2\n\nThis is after blank line";
-        
+
         let result = super::markdown_to_html(input);
-        
+
         // Should contain proper HTML paragraphs, not literal \n
-        assert!(!result.contains("\\n"), "Should not contain literal \\n characters");
+        assert!(
+            !result.contains("\\n"),
+            "Should not contain literal \\n characters"
+        );
         assert!(result.contains("<p>"), "Should contain HTML paragraph tags");
-        
+
         // Should contain the processed content
-        assert!(result.contains("This is line 1"), "Should contain first line");
-        assert!(result.contains("This is line 2"), "Should contain second line");
+        assert!(
+            result.contains("This is line 1"),
+            "Should contain first line"
+        );
+        assert!(
+            result.contains("This is line 2"),
+            "Should contain second line"
+        );
     }
 }

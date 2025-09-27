@@ -233,6 +233,7 @@ dependencies = [
  "clap",
  "git2",
  "libsql",
+ "log",
  "octocrab",
  "pulldown-cmark",
  "reqwest",
