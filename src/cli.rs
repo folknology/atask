@@ -1,5 +1,6 @@
 use crate::db::{Issue, IssuePriority, IssueStatus};
 use anyhow::Result;
+use colored::*;
 use log::{debug, info};
 
 /// Formats issues as a table for CLI display
@@ -7,6 +8,7 @@ pub struct TableFormatter;
 
 impl TableFormatter {
     /// Format issues as a table string
+    #[allow(dead_code)]
     pub fn format_issues(issues: &[Issue]) -> Result<String> {
         debug!("Formatting {} issues for table display", issues.len());
 
@@ -44,6 +46,7 @@ impl TableFormatter {
     }
 
     /// Format issues with filtering options
+    #[allow(dead_code)]
     pub fn format_issues_filtered(
         issues: &[Issue],
         status_filter: Option<IssueStatus>,
@@ -75,6 +78,7 @@ impl TableFormatter {
     }
 
     /// Format a compact table view
+    #[allow(dead_code)]
     pub fn format_issues_compact(issues: &[Issue]) -> Result<String> {
         if issues.is_empty() {
             return Ok("No issues found".to_string());
@@ -103,6 +107,7 @@ impl TableFormatter {
         }
     }
 
+    #[allow(dead_code)]
     fn format_status(status: &IssueStatus) -> String {
         match status {
             IssueStatus::Open => "open".to_string(),
@@ -112,6 +117,7 @@ impl TableFormatter {
         }
     }
 
+    #[allow(dead_code)]
     fn format_priority(priority: &IssuePriority) -> String {
         match priority {
             IssuePriority::Low => "low".to_string(),
@@ -135,6 +141,161 @@ impl TableFormatter {
             labels[0].clone()
         } else {
             format!("{} (+{})", labels[0], labels.len() - 1)
+        }
+    }
+
+    /// Format issues as a colored table string
+    pub fn format_issues_colored(issues: &[Issue], colored: bool) -> Result<String> {
+        debug!(
+            "Formatting {} issues for colored table display (colored: {})",
+            issues.len(),
+            colored
+        );
+
+        if issues.is_empty() {
+            info!("No issues to display");
+            let message = "No issues found";
+            return Ok(if colored {
+                message.dimmed().to_string()
+            } else {
+                message.to_string()
+            });
+        }
+
+        let mut output = String::new();
+
+        // Add summary header
+        let header = format!("Issues Overview ({} total)\n\n", issues.len());
+        output.push_str(&if colored {
+            header.bold().to_string()
+        } else {
+            header
+        });
+
+        // Headers with colors
+        let headers = "ID    | Title                          | Status      | Priority | Assignee     | Labels\n";
+        let separator = "------|--------------------------------|-------------|----------|--------------|--------\n";
+
+        if colored {
+            output.push_str(&headers.cyan().bold().to_string());
+            output.push_str(&separator.cyan().to_string());
+        } else {
+            output.push_str(headers);
+            output.push_str(separator);
+        }
+
+        // Rows with colored information
+        for issue in issues {
+            let id = issue.id.unwrap_or(0);
+            let title = Self::truncate_title(&issue.title, 30);
+            let status = Self::format_colored_status(&issue.status, colored);
+            let priority = Self::format_colored_priority(&issue.priority, colored);
+            let assignee = Self::format_assignee(&issue.assignee);
+            let labels = Self::format_labels(&issue.labels);
+
+            if colored {
+                // For colored output, we need to handle padding manually since ANSI codes affect length
+                let status_padded = Self::pad_colored_string(&status, 11);
+                let priority_padded = Self::pad_colored_string(&priority, 8);
+
+                output.push_str(&format!(
+                    "#{:<4} | {:<30} | {} | {} | {:<12} | {}\n",
+                    id, title, status_padded, priority_padded, assignee, labels
+                ));
+            } else {
+                output.push_str(&format!(
+                    "#{:<4} | {:<30} | {:<11} | {:<8} | {:<12} | {}\n",
+                    id, title, status, priority, assignee, labels
+                ));
+            }
+        }
+
+        info!("Formatted colored table with {} issues", issues.len());
+        Ok(output)
+    }
+
+    /// Format issues as a colored compact table
+    pub fn format_issues_compact_colored(issues: &[Issue], colored: bool) -> Result<String> {
+        if issues.is_empty() {
+            let message = "No issues found";
+            return Ok(if colored {
+                message.dimmed().to_string()
+            } else {
+                message.to_string()
+            });
+        }
+
+        let mut output = String::new();
+
+        let headers = "ID | Title | Status\n";
+        let separator = "---|-------|-------\n";
+
+        if colored {
+            output.push_str(&headers.cyan().bold().to_string());
+            output.push_str(&separator.cyan().to_string());
+        } else {
+            output.push_str(headers);
+            output.push_str(separator);
+        }
+
+        for issue in issues {
+            let id = issue.id.unwrap_or(0);
+            let title = Self::truncate_title(&issue.title, 20);
+            let status = Self::format_colored_status(&issue.status, colored);
+
+            output.push_str(&format!("#{} | {} | {}\n", id, title, status));
+        }
+
+        Ok(output)
+    }
+
+    fn format_colored_status(status: &IssueStatus, colored: bool) -> String {
+        let status_str = status.to_string();
+        if !colored {
+            return status_str;
+        }
+
+        match status {
+            IssueStatus::Open => status_str.green().to_string(),
+            IssueStatus::InProgress => status_str.yellow().to_string(),
+            IssueStatus::Resolved => status_str.blue().to_string(),
+            IssueStatus::Closed => status_str.bright_black().to_string(),
+        }
+    }
+
+    fn format_colored_priority(priority: &IssuePriority, colored: bool) -> String {
+        let priority_str = priority.to_string();
+        if !colored {
+            return priority_str;
+        }
+
+        match priority {
+            IssuePriority::Low => priority_str.bright_black().to_string(),
+            IssuePriority::Medium => priority_str.white().to_string(),
+            IssuePriority::High => priority_str.yellow().to_string(),
+            IssuePriority::Critical => priority_str.red().bold().to_string(),
+        }
+    }
+
+    fn pad_colored_string(colored_str: &str, target_width: usize) -> String {
+        // Count only visible characters (excluding ANSI escape sequences)
+        let mut visual_chars = 0;
+        let mut in_escape = false;
+
+        for c in colored_str.chars() {
+            if c == '\x1b' {
+                in_escape = true;
+            } else if in_escape && c == 'm' {
+                in_escape = false;
+            } else if !in_escape {
+                visual_chars += 1;
+            }
+        }
+
+        if visual_chars >= target_width {
+            colored_str.to_string()
+        } else {
+            format!("{}{}", colored_str, " ".repeat(target_width - visual_chars))
         }
     }
 }
@@ -323,5 +484,133 @@ mod tests {
         // Should contain truncated version
         assert!(output.contains("This is a very long"));
         assert!(output.contains("..."));
+    }
+
+    #[test]
+    fn test_format_issues_colored() {
+        let issues = vec![create_test_issue(
+            1,
+            "Test Issue",
+            IssueStatus::Open,
+            IssuePriority::High,
+        )];
+
+        let result = TableFormatter::format_issues_colored(&issues, true);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        // Should contain ANSI color codes
+        assert!(output.contains("\x1b["));
+        assert!(output.contains("Test Issue"));
+    }
+
+    #[test]
+    fn test_format_colored_status_colors() {
+        let issues = vec![
+            create_test_issue(1, "Open Issue", IssueStatus::Open, IssuePriority::Medium),
+            create_test_issue(
+                2,
+                "In Progress Issue",
+                IssueStatus::InProgress,
+                IssuePriority::Medium,
+            ),
+            create_test_issue(
+                3,
+                "Resolved Issue",
+                IssueStatus::Resolved,
+                IssuePriority::Medium,
+            ),
+            create_test_issue(
+                4,
+                "Closed Issue",
+                IssueStatus::Closed,
+                IssuePriority::Medium,
+            ),
+        ];
+
+        let result = TableFormatter::format_issues_colored(&issues, true);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        // Should contain different colors for different statuses
+        assert!(output.contains("Open Issue"));
+        assert!(output.contains("In Progress Issue"));
+        assert!(output.contains("Resolved Issue"));
+        assert!(output.contains("Closed Issue"));
+    }
+
+    #[test]
+    fn test_format_colored_priority_colors() {
+        let issues = vec![
+            create_test_issue(1, "Low Priority", IssueStatus::Open, IssuePriority::Low),
+            create_test_issue(
+                2,
+                "Medium Priority",
+                IssueStatus::Open,
+                IssuePriority::Medium,
+            ),
+            create_test_issue(3, "High Priority", IssueStatus::Open, IssuePriority::High),
+            create_test_issue(
+                4,
+                "Critical Priority",
+                IssueStatus::Open,
+                IssuePriority::Critical,
+            ),
+        ];
+
+        let result = TableFormatter::format_issues_colored(&issues, true);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        // Should contain different colors for different priorities
+        assert!(output.contains("Low Priority"));
+        assert!(output.contains("Medium Priority"));
+        assert!(output.contains("High Priority"));
+        assert!(output.contains("Critical Priority"));
+    }
+
+    #[test]
+    fn test_format_colored_vs_plain() {
+        let issues = vec![create_test_issue(
+            1,
+            "Test Issue",
+            IssueStatus::Open,
+            IssuePriority::High,
+        )];
+
+        let colored_result = TableFormatter::format_issues_colored(&issues, true);
+        let plain_result = TableFormatter::format_issues_colored(&issues, false);
+
+        assert!(colored_result.is_ok());
+        assert!(plain_result.is_ok());
+
+        let colored_output = colored_result.unwrap();
+        let plain_output = plain_result.unwrap();
+
+        // Colored output should contain ANSI codes, plain should not
+        assert!(colored_output.contains("\x1b["));
+        assert!(!plain_output.contains("\x1b["));
+
+        // Both should contain the same text content (ignoring colors)
+        assert!(colored_output.contains("Test Issue"));
+        assert!(plain_output.contains("Test Issue"));
+    }
+
+    #[test]
+    fn test_format_compact_colored() {
+        let issues = vec![create_test_issue(
+            1,
+            "Test Issue",
+            IssueStatus::Open,
+            IssuePriority::High,
+        )];
+
+        let result = TableFormatter::format_issues_compact_colored(&issues, true);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert!(output.contains("Test Issue"));
+        // Compact colored output should still have colors
+        assert!(output.contains("\x1b["));
     }
 }

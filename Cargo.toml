@@ -12,6 +12,8 @@ chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1.0"
 clap = { version = "4.0", features = ["derive"] }
 log = "0.4"
+colored = "2.0"
+atty = "0.2"
 # Git operations
 git2 = "0.18"
 # GitHub API operations

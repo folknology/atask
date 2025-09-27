@@ -44,6 +44,12 @@ enum Commands {
         /// Use compact view
         #[arg(long)]
         compact: bool,
+        /// Enable colored output
+        #[arg(long)]
+        color: bool,
+        /// Disable colored output (overrides color detection)
+        #[arg(long)]
+        no_color: bool,
     },
     /// Start the Kanban web server (requires GitHub token)
     Web {
@@ -105,6 +111,8 @@ async fn main() -> Result<()> {
             status,
             priority,
             compact,
+            color,
+            no_color,
         } => {
             let db = TaskDatabase::new("atask.db").await?;
             let issues = db.get_all_issues().await?;
@@ -120,13 +128,49 @@ async fn main() -> Result<()> {
                 .map(|p| p.parse::<IssuePriority>())
                 .transpose()?;
 
+            // Determine if we should use colored output
+            // Priority: --no-color disables, then --color enables, then auto-detect TTY
+            let use_color = if no_color {
+                false
+            } else if color {
+                true
+            } else {
+                // Auto-detect if output is a TTY (terminal)
+                atty::is(atty::Stream::Stdout)
+            };
+
             // Format and display table
             let table_output = if compact {
-                TableFormatter::format_issues_compact(&issues)?
+                TableFormatter::format_issues_compact_colored(&issues, use_color)?
             } else if status_filter.is_some() || priority_filter.is_some() {
-                TableFormatter::format_issues_filtered(&issues, status_filter, priority_filter)?
+                // For filtered results, we need a filtered colored version
+                let filtered_issues: Vec<Issue> = issues
+                    .iter()
+                    .filter(|issue| {
+                        let status_match = status_filter
+                            .as_ref()
+                            .map(|filter| {
+                                std::mem::discriminant(&issue.status)
+                                    == std::mem::discriminant(filter)
+                            })
+                            .unwrap_or(true);
+
+                        let priority_match = priority_filter
+                            .as_ref()
+                            .map(|filter| {
+                                std::mem::discriminant(&issue.priority)
+                                    == std::mem::discriminant(filter)
+                            })
+                            .unwrap_or(true);
+
+                        status_match && priority_match
+                    })
+                    .cloned()
+                    .collect();
+
+                TableFormatter::format_issues_colored(&filtered_issues, use_color)?
             } else {
-                TableFormatter::format_issues(&issues)?
+                TableFormatter::format_issues_colored(&issues, use_color)?
             };
 
             println!("{}", table_output);
