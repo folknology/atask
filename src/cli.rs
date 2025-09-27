@@ -336,22 +336,39 @@ impl TableFormatter {
         });
         output.push_str("\n\n");
 
-        // Group issues by status
+        // Group issues by labels (matching web Kanban)
+        let mut evaluating = Vec::new();
         let mut preparing = Vec::new();
         let mut progressing = Vec::new();
         let mut done = Vec::new();
         let mut backlog = Vec::new();
 
         for issue in issues {
-            match issue.status {
-                IssueStatus::Open => preparing.push(issue),
-                IssueStatus::InProgress => progressing.push(issue),
-                IssueStatus::Resolved => done.push(issue),
-                IssueStatus::Closed => backlog.push(issue),
+            let mut placed = false;
+
+            // Check for workflow labels (same logic as web Kanban)
+            if issue.labels.iter().any(|label| label == "Evaluating") {
+                evaluating.push(issue);
+                placed = true;
+            } else if issue.labels.iter().any(|label| label == "Preparing") {
+                preparing.push(issue);
+                placed = true;
+            } else if issue.labels.iter().any(|label| label == "Progressing") {
+                progressing.push(issue);
+                placed = true;
+            } else if issue.labels.iter().any(|label| label == "Done") {
+                done.push(issue);
+                placed = true;
+            }
+
+            // If no workflow label found, put in backlog
+            if !placed {
+                backlog.push(issue);
             }
         }
 
-        // Format each column
+        // Format each column (in logical workflow order)
+        Self::format_kanban_column(&mut output, "EVALUATING", &evaluating, colored)?;
         Self::format_kanban_column(&mut output, "PREPARING", &preparing, colored)?;
         Self::format_kanban_column(&mut output, "PROGRESSING", &progressing, colored)?;
         Self::format_kanban_column(&mut output, "DONE", &done, colored)?;
@@ -392,22 +409,39 @@ impl TableFormatter {
         });
         output.push_str("\n\n");
 
-        // Group issues by status (same as regular kanban)
+        // Group issues by labels (matching web Kanban)
+        let mut evaluating = Vec::new();
         let mut preparing = Vec::new();
         let mut progressing = Vec::new();
         let mut done = Vec::new();
         let mut backlog = Vec::new();
 
         for issue in issues {
-            match issue.status {
-                IssueStatus::Open => preparing.push(issue),
-                IssueStatus::InProgress => progressing.push(issue),
-                IssueStatus::Resolved => done.push(issue),
-                IssueStatus::Closed => backlog.push(issue),
+            let mut placed = false;
+
+            // Check for workflow labels (same logic as web Kanban)
+            if issue.labels.iter().any(|label| label == "Evaluating") {
+                evaluating.push(issue);
+                placed = true;
+            } else if issue.labels.iter().any(|label| label == "Preparing") {
+                preparing.push(issue);
+                placed = true;
+            } else if issue.labels.iter().any(|label| label == "Progressing") {
+                progressing.push(issue);
+                placed = true;
+            } else if issue.labels.iter().any(|label| label == "Done") {
+                done.push(issue);
+                placed = true;
+            }
+
+            // If no workflow label found, put in backlog
+            if !placed {
+                backlog.push(issue);
             }
         }
 
         // Format each column with compact format (no assignee, fewer details)
+        Self::format_kanban_column_compact(&mut output, "EVALUATING", &evaluating, colored)?;
         Self::format_kanban_column_compact(&mut output, "PREPARING", &preparing, colored)?;
         Self::format_kanban_column_compact(&mut output, "PROGRESSING", &progressing, colored)?;
         Self::format_kanban_column_compact(&mut output, "DONE", &done, colored)?;
@@ -452,6 +486,7 @@ impl TableFormatter {
         let header = format!("{} ({})", column_name, issues.len());
         if colored {
             let colored_header = match column_name {
+                "EVALUATING" => header.magenta().bold(),
                 "PREPARING" => header.yellow().bold(),
                 "PROGRESSING" => header.blue().bold(),
                 "DONE" => header.green().bold(),
@@ -508,6 +543,7 @@ impl TableFormatter {
         let header = format!("{} ({})", column_name, issues.len());
         if colored {
             let colored_header = match column_name {
+                "EVALUATING" => header.magenta().bold(),
                 "PREPARING" => header.yellow().bold(),
                 "PROGRESSING" => header.blue().bold(),
                 "DONE" => header.green().bold(),
