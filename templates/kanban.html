@@ -229,18 +229,18 @@
             transform: translateY(-1px);
         }
 
-        .card-number {
-            color: var(--text-secondary);
-            font-size: 0.85rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-        }
-
         .card-title {
             font-weight: 600;
             color: var(--text-primary);
             margin-bottom: 0.5rem;
             line-height: 1.4;
+            cursor: pointer;
+            transition: color 0.2s ease;
+        }
+
+        .card-title:hover {
+            color: var(--accent-secondary);
+            text-decoration: underline;
         }
 
         .card-body {
@@ -586,16 +586,7 @@
             }
         }
 
-        /* Make issue number clickable */
-        .card-number {
-            cursor: pointer;
-            transition: color 0.2s ease;
-        }
 
-        .card-number:hover {
-            color: #667eea;
-            text-decoration: underline;
-        }
 
         @media (max-width: 768px) {
             .header h1 {
@@ -679,8 +670,7 @@
                              data-labels="{{card.labels.join(",")}}"
                              data-created-at="{{card.created_at.format("%B %d, %Y at %H:%M")}}"
                              data-updated-at="{{card.updated_at.format("%B %d, %Y at %H:%M")}}">
-                            <div class="card-number" onclick="showIssueModal(this.parentElement)">#{{card.issue_number}}</div>
-                            <div class="card-title">{{card.title}}</div>
+                            <div class="card-title" onclick="showIssueModal(this.parentElement)">{{card.title}}</div>
                             <div class="card-body">{{card.body_html|safe}}</div>
                             <div class="card-meta">
                                 <span class="priority priority-{{card.priority|lower}}">{{card.priority}}</span>
