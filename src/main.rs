@@ -51,6 +51,21 @@ enum Commands {
         #[arg(long)]
         no_color: bool,
     },
+    /// Display issues in a Kanban board format
+    Kanban {
+        /// Filter by issue status
+        #[arg(long)]
+        status: Option<String>,
+        /// Use compact view
+        #[arg(long)]
+        compact: bool,
+        /// Enable colored output
+        #[arg(long)]
+        color: bool,
+        /// Disable colored output (overrides color detection)
+        #[arg(long)]
+        no_color: bool,
+    },
     /// Start the Kanban web server (requires GitHub token)
     Web {
         /// Port to run the web server on
@@ -174,6 +189,43 @@ async fn main() -> Result<()> {
             };
 
             println!("{}", table_output);
+        }
+        Commands::Kanban {
+            status,
+            compact,
+            color,
+            no_color,
+        } => {
+            let db = TaskDatabase::new("atask.db").await?;
+            let issues = db.get_all_issues().await?;
+
+            // Parse status filter if provided
+            let status_filter = status
+                .as_ref()
+                .map(|s| s.parse::<IssueStatus>())
+                .transpose()?;
+
+            // Determine if we should use colored output
+            // Priority: --no-color disables, then --color enables, then auto-detect TTY
+            let use_color = if no_color {
+                false
+            } else if color {
+                true
+            } else {
+                // Auto-detect if output is a TTY (terminal)
+                atty::is(atty::Stream::Stdout)
+            };
+
+            // Format and display Kanban board
+            let kanban_output = if status_filter.is_some() {
+                TableFormatter::format_issues_kanban_status(&issues, status_filter, use_color)?
+            } else if compact {
+                TableFormatter::format_issues_kanban_compact(&issues, use_color)?
+            } else {
+                TableFormatter::format_issues_kanban(&issues, use_color)?
+            };
+
+            println!("{}", kanban_output);
         }
         Commands::Web { port } => {
             println!("🚀 Starting Kanban Web Server...");

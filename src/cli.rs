@@ -298,6 +298,250 @@ impl TableFormatter {
             format!("{}{}", colored_str, " ".repeat(target_width - visual_chars))
         }
     }
+
+    /// Format issues as a Kanban board view
+    pub fn format_issues_kanban(issues: &[Issue], colored: bool) -> Result<String> {
+        debug!(
+            "Formatting {} issues for Kanban board display (colored: {})",
+            issues.len(),
+            colored
+        );
+
+        if issues.is_empty() {
+            let header = "KANBAN BOARD OVERVIEW (0 issues)";
+            let message = "No issues found";
+            return Ok(format!(
+                "{}\n\n{}",
+                if colored {
+                    header.bold().to_string()
+                } else {
+                    header.to_string()
+                },
+                if colored {
+                    message.dimmed().to_string()
+                } else {
+                    message.to_string()
+                }
+            ));
+        }
+
+        let mut output = String::new();
+
+        // Header
+        let header = format!("KANBAN BOARD OVERVIEW ({} issues)", issues.len());
+        output.push_str(&if colored {
+            header.bold().to_string()
+        } else {
+            header
+        });
+        output.push_str("\n\n");
+
+        // Group issues by status
+        let mut preparing = Vec::new();
+        let mut progressing = Vec::new();
+        let mut done = Vec::new();
+        let mut backlog = Vec::new();
+
+        for issue in issues {
+            match issue.status {
+                IssueStatus::Open => preparing.push(issue),
+                IssueStatus::InProgress => progressing.push(issue),
+                IssueStatus::Resolved => done.push(issue),
+                IssueStatus::Closed => backlog.push(issue),
+            }
+        }
+
+        // Format each column
+        Self::format_kanban_column(&mut output, "PREPARING", &preparing, colored)?;
+        Self::format_kanban_column(&mut output, "PROGRESSING", &progressing, colored)?;
+        Self::format_kanban_column(&mut output, "DONE", &done, colored)?;
+        Self::format_kanban_column(&mut output, "BACKLOG", &backlog, colored)?;
+
+        info!("Formatted Kanban board with {} issues", issues.len());
+        Ok(output)
+    }
+
+    /// Format issues as a compact Kanban board view
+    pub fn format_issues_kanban_compact(issues: &[Issue], colored: bool) -> Result<String> {
+        if issues.is_empty() {
+            let header = "KANBAN BOARD OVERVIEW (0 issues)";
+            let message = "No issues found";
+            return Ok(format!(
+                "{}\n\n{}",
+                if colored {
+                    header.bold().to_string()
+                } else {
+                    header.to_string()
+                },
+                if colored {
+                    message.dimmed().to_string()
+                } else {
+                    message.to_string()
+                }
+            ));
+        }
+
+        let mut output = String::new();
+
+        // Header
+        let header = format!("KANBAN BOARD OVERVIEW ({} issues)", issues.len());
+        output.push_str(&if colored {
+            header.bold().to_string()
+        } else {
+            header
+        });
+        output.push_str("\n\n");
+
+        // Group issues by status (same as regular kanban)
+        let mut preparing = Vec::new();
+        let mut progressing = Vec::new();
+        let mut done = Vec::new();
+        let mut backlog = Vec::new();
+
+        for issue in issues {
+            match issue.status {
+                IssueStatus::Open => preparing.push(issue),
+                IssueStatus::InProgress => progressing.push(issue),
+                IssueStatus::Resolved => done.push(issue),
+                IssueStatus::Closed => backlog.push(issue),
+            }
+        }
+
+        // Format each column with compact format (no assignee, fewer details)
+        Self::format_kanban_column_compact(&mut output, "PREPARING", &preparing, colored)?;
+        Self::format_kanban_column_compact(&mut output, "PROGRESSING", &progressing, colored)?;
+        Self::format_kanban_column_compact(&mut output, "DONE", &done, colored)?;
+        Self::format_kanban_column_compact(&mut output, "BACKLOG", &backlog, colored)?;
+
+        Ok(output)
+    }
+
+    /// Format issues filtered by status as Kanban columns
+    pub fn format_issues_kanban_status(
+        issues: &[Issue],
+        status_filter: Option<IssueStatus>,
+        colored: bool,
+    ) -> Result<String> {
+        let filtered_issues: Vec<&Issue> = issues
+            .iter()
+            .filter(|issue| {
+                status_filter
+                    .as_ref()
+                    .map(|filter| {
+                        std::mem::discriminant(&issue.status) == std::mem::discriminant(filter)
+                    })
+                    .unwrap_or(true)
+            })
+            .collect();
+
+        let owned_issues: Vec<Issue> = filtered_issues.into_iter().cloned().collect();
+        Self::format_issues_kanban(&owned_issues, colored)
+    }
+
+    fn format_kanban_column(
+        output: &mut String,
+        column_name: &str,
+        issues: &[&Issue],
+        colored: bool,
+    ) -> Result<()> {
+        if issues.is_empty() && column_name != "BACKLOG" {
+            return Ok(()); // Skip empty columns except backlog
+        }
+
+        // Column header
+        let header = format!("{} ({})", column_name, issues.len());
+        if colored {
+            let colored_header = match column_name {
+                "PREPARING" => header.yellow().bold(),
+                "PROGRESSING" => header.blue().bold(),
+                "DONE" => header.green().bold(),
+                "BACKLOG" => header.bright_black().bold(),
+                _ => header.white().bold(),
+            };
+            output.push_str(&colored_header.to_string());
+        } else {
+            output.push_str(&header);
+        }
+        output.push('\n');
+
+        // Format issues in this column
+        for issue in issues {
+            let id = issue.id.unwrap_or(0);
+            let title = Self::truncate_title(&issue.title, 40);
+            let assignee = Self::format_assignee(&issue.assignee);
+            let labels = Self::format_labels(&issue.labels);
+
+            if colored {
+                let colored_number = format!("#{}", id);
+                let final_id = match issue.priority {
+                    IssuePriority::Critical => colored_number.red().bold().to_string(),
+                    IssuePriority::High => colored_number.yellow().to_string(),
+                    IssuePriority::Medium => colored_number.to_string(),
+                    IssuePriority::Low => colored_number.bright_black().to_string(),
+                };
+                output.push_str(&format!(
+                    "   {}  {:<40} {:<12} {}\n",
+                    final_id, title, assignee, labels
+                ));
+            } else {
+                output.push_str(&format!(
+                    "   #{:<2} {:<40} {:<12} {}\n",
+                    id, title, assignee, labels
+                ));
+            }
+        }
+        output.push('\n');
+        Ok(())
+    }
+
+    fn format_kanban_column_compact(
+        output: &mut String,
+        column_name: &str,
+        issues: &[&Issue],
+        colored: bool,
+    ) -> Result<()> {
+        if issues.is_empty() && column_name != "BACKLOG" {
+            return Ok(());
+        }
+
+        // Column header (same as regular)
+        let header = format!("{} ({})", column_name, issues.len());
+        if colored {
+            let colored_header = match column_name {
+                "PREPARING" => header.yellow().bold(),
+                "PROGRESSING" => header.blue().bold(),
+                "DONE" => header.green().bold(),
+                "BACKLOG" => header.bright_black().bold(),
+                _ => header.white().bold(),
+            };
+            output.push_str(&colored_header.to_string());
+        } else {
+            output.push_str(&header);
+        }
+        output.push('\n');
+
+        // Format issues in compact mode (no assignee)
+        for issue in issues {
+            let id = issue.id.unwrap_or(0);
+            let title = Self::truncate_title(&issue.title, 50);
+            let labels = Self::format_labels(&issue.labels);
+
+            if colored {
+                let colored_number = format!("#{}", id);
+                let final_id = match issue.priority {
+                    IssuePriority::Critical => colored_number.red().bold().to_string(),
+                    IssuePriority::High => colored_number.yellow().to_string(),
+                    IssuePriority::Medium => colored_number.to_string(),
+                    IssuePriority::Low => colored_number.bright_black().to_string(),
+                };
+                output.push_str(&format!("   {}  {:<50} {}\n", final_id, title, labels));
+            } else {
+                output.push_str(&format!("   #{:<2} {:<50} {}\n", id, title, labels));
+            }
+        }
+        output.push('\n');
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -612,5 +856,140 @@ mod tests {
         assert!(output.contains("Test Issue"));
         // Compact colored output should still have colors
         assert!(output.contains("\x1b["));
+    }
+
+    // Kanban view tests
+    #[test]
+    fn test_format_issues_kanban_empty() {
+        let issues = vec![];
+        let result = TableFormatter::format_issues_kanban(&issues, false);
+
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("KANBAN BOARD OVERVIEW (0 issues)"));
+        assert!(output.contains("No issues found"));
+    }
+
+    #[test]
+    fn test_format_issues_kanban_basic() {
+        let issues = vec![
+            create_test_issue(1, "Open Issue", IssueStatus::Open, IssuePriority::High),
+            create_test_issue(
+                2,
+                "In Progress Issue",
+                IssueStatus::InProgress,
+                IssuePriority::Medium,
+            ),
+            create_test_issue(
+                3,
+                "Resolved Issue",
+                IssueStatus::Resolved,
+                IssuePriority::Low,
+            ),
+            create_test_issue(
+                4,
+                "Closed Issue",
+                IssueStatus::Closed,
+                IssuePriority::Critical,
+            ),
+        ];
+
+        let result = TableFormatter::format_issues_kanban(&issues, false);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert!(output.contains("KANBAN BOARD OVERVIEW (4 issues)"));
+        assert!(output.contains("PREPARING"));
+        assert!(output.contains("PROGRESSING"));
+        assert!(output.contains("DONE"));
+        assert!(output.contains("BACKLOG"));
+        assert!(output.contains("Open Issue"));
+        assert!(output.contains("In Progress Issue"));
+        assert!(output.contains("Resolved Issue"));
+        assert!(output.contains("Closed Issue"));
+    }
+
+    #[test]
+    fn test_format_issues_kanban_colored() {
+        let issues = vec![
+            create_test_issue(1, "High Priority", IssueStatus::Open, IssuePriority::High),
+            create_test_issue(
+                2,
+                "Critical Issue",
+                IssueStatus::InProgress,
+                IssuePriority::Critical,
+            ),
+        ];
+
+        let result = TableFormatter::format_issues_kanban(&issues, true);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        // Should contain ANSI color codes for headers and issue numbers
+        assert!(output.contains("\x1b["));
+        assert!(output.contains("High Priority"));
+        assert!(output.contains("Critical Issue"));
+    }
+
+    #[test]
+    fn test_format_issues_kanban_compact() {
+        let issues = vec![create_test_issue(
+            1,
+            "Test Issue",
+            IssueStatus::Open,
+            IssuePriority::Medium,
+        )];
+
+        let result = TableFormatter::format_issues_kanban_compact(&issues, false);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert!(output.contains("Test Issue"));
+        // Compact should have fewer details
+        assert!(!output.contains("@test-user"));
+    }
+
+    #[test]
+    fn test_format_issues_kanban_status_filter() {
+        let issues = vec![
+            create_test_issue(1, "Open Issue", IssueStatus::Open, IssuePriority::Medium),
+            create_test_issue(
+                2,
+                "Closed Issue",
+                IssueStatus::Closed,
+                IssuePriority::Medium,
+            ),
+        ];
+
+        let result =
+            TableFormatter::format_issues_kanban_status(&issues, Some(IssueStatus::Open), false);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert!(output.contains("Open Issue"));
+        assert!(!output.contains("Closed Issue"));
+        // Should only show the filtered status column
+        assert!(output.contains("PREPARING"));
+        assert!(!output.contains("DONE"));
+    }
+
+    #[test]
+    fn test_format_issues_kanban_column_grouping() {
+        let issues = vec![
+            create_test_issue(1, "Issue 1", IssueStatus::Open, IssuePriority::High),
+            create_test_issue(2, "Issue 2", IssueStatus::Open, IssuePriority::Low),
+            create_test_issue(3, "Issue 3", IssueStatus::InProgress, IssuePriority::Medium),
+        ];
+
+        let result = TableFormatter::format_issues_kanban(&issues, false);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        // Should group issues correctly by status
+        assert!(output.contains("PREPARING (2)"));
+        assert!(output.contains("PROGRESSING (1)"));
+        assert!(output.contains("Issue 1"));
+        assert!(output.contains("Issue 2"));
+        assert!(output.contains("Issue 3"));
     }
 }
